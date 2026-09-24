@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " t-model: :PiModel 'openai/gpt-x' sends set_model over stdin. The chat buffer
 " is not dumped for this case; verify the exact stdin line via the fake's FAKE_PI_LOG
 " (/tmp/fakepi-model.log, exported by run.sh). Poll for the set_model line because

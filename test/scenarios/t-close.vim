@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " t-close: :PiOpen then :PiClose -> the chat window is closed and the chat
 " buffer is no longer listed / shown in any window.
 set nocompatible

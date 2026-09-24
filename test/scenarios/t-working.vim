@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: while a turn is in flight the chat shows a "⏳ pi is working…"
 " line and hides the input prompt; on settle the line is removed and the
 " "❯ " prompt is restored.
