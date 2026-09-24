@@ -1,0 +1,27 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Vim
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y vim
+          vim --version | head -3
+          vim --version | grep -E '\+job \+channel' || vim --version
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 25
+
+      - name: Run tests
+        run: sh test/run.sh
