@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " t-nosession: with g:pi_chat_no_session=1 the job is started with --no-session,
 " a STARTUP arg (not a stdin line), so verify it via the fake's argv log
 " (/tmp/fakepi-argv.log, exported by run.sh). job_start is async, so poll for

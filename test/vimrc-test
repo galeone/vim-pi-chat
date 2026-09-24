@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Headless end-to-end test for pi_chat.vim.
 "
 " Run from the repo root (needs `pi` on PATH -> test/pi fake; see test/pi):
