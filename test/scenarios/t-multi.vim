@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: multiple turns in one session. Expect two distinct "Echo:" replies.
 set nocompatible
 set noswapfile

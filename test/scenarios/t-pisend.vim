@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " t-pisend: :PiSend <text> sends text directly (bypassing the input buffer).
 " Assert the sent prompt line and the fake's echo of it.
 set nocompatible

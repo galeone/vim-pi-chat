@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: thinking is rendered when g:pi_chat_show_thinking=1.
 " Runner env: FAKE_PI_THINKING=1. Expect a "Thinking:" line AND the "Echo:" reply.
 set nocompatible

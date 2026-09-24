@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: :PiFile attaches a context file. Expect an "added context file" log line.
 set nocompatible
 set noswapfile
