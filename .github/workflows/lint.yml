@@ -14,12 +14,12 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.14'
 
       - name: Install vint
         run: |
           python -m venv .venv
-          .venv/bin/pip install 'vint==0.3.21' 'setuptools<81'
+          .venv/bin/pip install 'vim-vint==0.3.21' 'setuptools<81'
           .venv/bin/vint --version
 
       - name: Lint plugin (vint)
