@@ -100,6 +100,10 @@ for f in test/scenarios/t-*.vim; do
               check pisend 'Echo: pi send test' '' '' ;;
     think)    export FAKE_PI_THINKING=1 FAKE_PI_TOOL=;    run think 10;  check think 'Thinking:' '' '' ;;
     thinkoff) export FAKE_PI_THINKING=1 FAKE_PI_TOOL=;    run thinkoff 10; check thinkoff 'Echo:' 'Thinking:' '' ;;
+    thinkpanel) export FAKE_PI_THINKING=1 FAKE_PI_TOOL=; run thinkpanel 10
+              # panel buffer gets the thinking text, the chat reply does not
+              # leak into it, and toggle off/on keeps and restores the window
+              check thinkpanel 'Thinking: weighing the options' 'Echo:' 'wins: 3' ;;
     tools)    export FAKE_PI_THINKING= FAKE_PI_TOOL=multi; run tools 13;  check tools '✓ edit' '' '' ;;
     multi)    export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run multi 10;  check multi '' '' 'Echo:' ;;
     working)  export FAKE_PI_DELAY_MS=2500 FAKE_PI_TURN_MS=100 FAKE_PI_THINKING= FAKE_PI_TOOL=

@@ -14,6 +14,8 @@ set cpo&vim
 "   :PiModel <pattern>   switch model (e.g. :PiModel anthropic/claude-sonnet-4-5)
 "   :PiClear             start a fresh session
 "   :PiClose             close the chat and stop the agent
+"   :PiThinking          toggle a panel below the chat streaming the model's
+"                        thinking live (g:pi_chat_thinking_height)
 "   :PiFile [path]       show/set the context file (default: the buffer you had
 "                        open when :PiOpen started the session; pi's job runs
 "                        in its directory and prompts mention it)
@@ -36,6 +38,8 @@ set cpo&vim
 "
 " Configuration (set in .vimrc before the plugin loads):
 "   g:pi_chat_split                'vsplit' (default), 'split', or 'new'
+"   g:pi_chat_thinking_height      :PiThinking panel height (default 0.3):
+"                                  integer rows or float 0-1 fraction
 "   g:pi_chat_width                split width/height: integer columns/rows
 "                                  (default 60) or float 0-1 for a fraction
 "                                  of the screen (0.4 = 40%)
@@ -70,6 +74,7 @@ let g:loaded_pi_chat = 1
 " ----------------------------- configuration -------------------------------
 
 if !exists('g:pi_chat_split')                | let g:pi_chat_split = 'vsplit' | endif
+if !exists('g:pi_chat_thinking_height')      | let g:pi_chat_thinking_height = 0.3 | endif
 if !exists('g:pi_chat_width')                | let g:pi_chat_width = 60 | endif
 if !exists('g:pi_chat_args')                 | let g:pi_chat_args = [] | endif
 if !exists('g:pi_chat_no_session')           | let g:pi_chat_no_session = 0 | endif
@@ -116,6 +121,10 @@ let s:guarding = 0
 let s:pinning = 0
 " Reentrancy flag for s:GuardBusyInput (typing while pi is generating).
 let s:typing_guard = 0
+" Thinking panel (:PiThinking): a small horizontal split under the chat
+" buffer where the model's thinking streams live. -1 = never created.
+let s:think_buf = -1       " bufnr of the thinking panel buffer, or -1
+let s:think_text = ''      " full thinking text for the current turn
 
 " Buffer invariants:
 "   lines 1 .. len(s:transcript) are the read-only log and must always match
@@ -553,7 +562,151 @@ function! s:HideWorking()
   call s:GuardTranscript()
 endfunction
 
+" ------------------------------ thinking panel -----------------------------
+" :PiThinking toggles a small horizontal panel below the chat where the
+" model's thinking streams live.  The panel is a separate, MODIFIABLE buffer
+" (the build-quirk note above applies to it too), and every line write goes
+" through buffer-local functions (appendbufline/setbufline) so a drain tick
+" never steals focus.  Closing the panel keeps its content (bufhidden=hide),
+" so toggling off/on mid-turn preserves what already streamed.  Each new
+" prompt and :PiClear reset it; :PiClose destroys it.
+
+function! s:ThinkPanelHeight()
+  let l:h = get(g:, 'pi_chat_thinking_height', 0.3)
+  if type(l:h) == v:t_number && l:h > 0 && l:h < 1
+    return max(1, float2nr(&lines * l:h))
+  endif
+  return (type(l:h) == v:t_number && l:h > 0) ? l:h : 8
+endfunction
+
+" Called with the panel buffer current (right after `:buffer`).
+function! s:ThinkBufInit()
+  setlocal buftype=nofile bufhidden=hide noswapfile nonumber norelativenumber
+  setlocal wrap linebreak foldcolumn=0
+  " `let &l:statusline` is the only form that sticks for values containing
+  " spaces in this vim: `:setlocal statusline='… …'` raises E518 (value split
+  " on spaces) and the double-quoted :setlocal form is silently dropped.
+  let &l:statusline = ' pi thinking '
+  syn match PiChatThinking '^.*$'
+  hi def link PiChatThinking Comment
+endfunction
+
+" Number of lines in the panel buffer (getbufline-based: buflinecount() is
+" not built into every Vim 9.2).
+function! s:ThinkLineCount()
+  return len(getbufline(s:think_buf, 1, '$'))
+endfunction
+
+function! s:ThinkReset()
+  let s:think_text = ''
+  if s:think_buf < 0 || !bufexists(s:think_buf)
+    return
+  endif
+  call setbufline(s:think_buf, 1, '')
+  let l:n = s:ThinkLineCount()
+  if l:n > 1
+    call deletebufline(s:think_buf, 2, l:n)
+  endif
+endfunction
+
+" Append the un-flushed fragment to the panel buffer.  Follows the bottom only
+" while the cursor is already within two lines of it (so manual browsing of
+" the panel is not yanked back); touches the background window via cursor()
+" without ever moving focus.
+" Re-renders the panel buffer from s:think_text (complete lines plus the
+" trailing fragment).  The buffer is small (a few hundred lines at most), so
+" a full setbufline sync per flush is cheap; the background window never
+" gains focus, and its cursor is followed to the bottom only when it was
+" already near the bottom, so reading older thinking never gets yanked.
+function! s:FlushThinkTail()
+  if s:think_buf < 0 || empty(s:think_text)
+    return
+  endif
+  let l:parts = split(s:think_text, "\n", 1)
+  let l:render = l:parts[:-2]  " complete lines
+  if l:parts[-1] !=# ''
+    call add(l:render, l:parts[-1])
+  endif
+  let l:old = getbufline(s:think_buf, 1, '$')
+  if l:render == l:old
+    return
+  endif
+  let l:win = bufwinid(s:think_buf)
+  let l:follow = (l:win > 0)
+        \ && (len(l:old) <= 3 || len(l:old) - getwinvar(l:win, 'cursor')[0] <= 2)
+  let l:n = len(l:render)
+  let l:i = 0
+  while l:i < l:n
+    call setbufline(s:think_buf, l:i + 1, l:render[l:i])
+    let l:i += 1
+  endwhile
+  if len(l:old) > l:n
+    call deletebufline(s:think_buf, l:n + 1, len(l:old))
+  endif
+  if l:follow
+    call cursor(l:win, l:n)
+  endif
+endfunction
+
+function! s:ThinkCloseAll()
+  if s:think_buf < 0
+    return
+  endif
+  let l:winid = bufwinid(s:think_buf)
+  if l:winid > 0
+    execute win_id2win(l:winid) . 'wincmd w'
+    if winnr('$') > 1
+      close
+    endif
+  endif
+  silent! bdelete! s:think_buf
+  let s:think_buf = -1
+  let s:think_text = ''
+endfunction
+
+function! s:PiThinking()
+  if s:think_buf > 0 && bufwinnr(s:think_buf) != -1
+    " toggle off: the window closes, the buffer (and its content) survives
+    call win_gotoid(bufwinid(s:think_buf))
+    if winnr('$') > 1
+      close
+    endif
+    echo 'thinking panel hidden (content kept)'
+    return
+  endif
+  if s:buf < 0
+    echohl WarningMsg | echo 'pi chat: open the chat first (:PiOpen)' | echohl None
+    return
+  endif
+  let l:first = (s:think_buf < 0)
+  if l:first
+    let s:think_buf = bufadd('__PiChatThinking__')
+    call setbufline(s:think_buf, 1, '')
+  endif
+  " open the new window below the chat window when we can find it
+  " win_gotoid jumps to the window by ID. (execute l:winid . 'wincmd w' would
+  " instead run wincmd w winid TIMES - a cyclic hop, not a jump.)
+  let l:cwin = s:FindWin()
+  if l:cwin > 0
+    call win_gotoid(l:cwin)
+  endif
+  botright split
+  execute 'resize ' . s:ThinkPanelHeight()
+  execute 'buffer ' . s:think_buf
+  call s:ThinkBufInit()
+  if l:cwin > 0
+    call win_gotoid(l:cwin)
+  endif
+  " park the panel's cursor at the bottom so the next delta is followed
+  let l:win = bufwinid(s:think_buf)
+  if l:win > 0
+    call cursor(l:win, s:ThinkLineCount())
+  endif
+endfunction
+
 " ------------------------------- commands/maps -----------------------------
+
+command!          PiThinking call s:PiThinking()
 
 " <q-args> is always a valid string (empty when no args): `:PiOpen fix the
 " bug` passes the whole phrase, and `:PiOpen "quoted: words"` still arrives as
@@ -573,6 +726,8 @@ endif
 " ------------------------------ job control --------------------------------
 
 function! s:UserPrompt(text)
+  " a new prompt starts a fresh thinking block
+  call s:ThinkReset()
   call s:ClearInputBlock(0)
   call s:AddLogLines(['', '❯ ' . a:text])
   call s:ShowWorking()
@@ -1024,6 +1179,7 @@ function! s:PiClear()
   " decrementing the tracked line numbers).
   call s:HideWorking()
   call s:Send({'type': 'new_session'})
+  call s:ThinkReset()
   if s:buf > 0 && buflisted(s:buf) && s:input_line > 1 && s:input_line - 1 <= line('$')
     " Wipe the transcript above the input line.
     call setline(1, repeat([''], s:input_line - 1))
@@ -1035,6 +1191,7 @@ function! s:PiClear()
 endfunction
 
 function! s:PiClose(...)
+  call s:ThinkCloseAll()
   if a:0 > 0 && a:1
     " invoked from BufDelete: the buffer is already gone
     let s:buf = -1
@@ -1515,9 +1672,17 @@ function! s:HandleDelta(msg)
     call s:FlushTail()
   elseif l:evt.type ==# 'text_end'
     call s:CommitTail()
-  elseif l:evt.type ==# 'thinking_delta' && g:pi_chat_show_thinking
-    let s:tail .= get(l:evt, 'delta', '')
-    call s:FlushTail()
+  elseif l:evt.type ==# 'thinking_delta'
+    if g:pi_chat_show_thinking
+      let s:tail .= get(l:evt, 'delta', '')
+      call s:FlushTail()
+    endif
+    " The thinking panel (a separate buffer) always gets the stream while it
+    " exists; s:think_buf == -1 means it was never opened.
+    if s:think_buf > 0
+      let s:think_text .= get(l:evt, 'delta', '')
+      call s:FlushThinkTail()
+    endif
   endif
 endfunction
 
