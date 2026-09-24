@@ -1,0 +1,15 @@
+#!/bin/sh
+# PATH shim so `vim -Nu ./test/vimrc-test` exercises the plugin against the
+# fake pi RPC server instead of the real agent.
+#
+# The shim may be launched with a stripped PATH (headless tests), so make
+# sure `node` is resolvable before exec'ing the fake.
+if ! command -v node >/dev/null 2>&1; then
+  for d in "$HOME"/.nvm/versions/node/*/bin /opt/local/bin /usr/local/bin; do
+    if [ -x "$d/node" ]; then
+      PATH="$d:$PATH"
+      break
+    fi
+  done
+fi
+exec node "$(dirname "$0")/fake-pi.js" "$@"

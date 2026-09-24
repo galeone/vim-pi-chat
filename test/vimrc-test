@@ -1,0 +1,63 @@
+" Headless end-to-end test for pi_chat.vim.
+"
+" Run from the repo root (needs `pi` on PATH -> test/pi fake; see test/pi):
+"
+"   PATH="$PWD/test:$PATH" FAKE_PI_DELAY_MS=3000 FAKE_PI_TURN_MS=700 \
+"     sh -c 'tail -f /dev/null | vim -Nu ./test/vimrc-test >/tmp/pilog.txt 2>&1' &
+"
+" The pipe feeds vim's stdin so it stays alive without a TTY (a closed
+" stdin makes --not-a-term-style headless vim exit immediately). The test
+" quits itself after the dump. Outputs:
+"
+"   /tmp/pibuf.txt    final PiChat buffer lines
+"   /tmp/pistatus.txt PiChatStatusText() sampled every 500ms
+"
+" Expected happy path (with the env timings above):
+"   - 'contacting pi …' while waiting for agent_start
+"   - 'pi is working …' during the streamed reply + tool execution
+"   - 'pi chat' once agent_settled lands
+"   - buffer shows: header, '❯ hello fake', 'Echo: hello fake',
+"     '  ⚙ bash  echo fake', '  ✓ bash', and the notify warning line
+set nocompatible
+set noswapfile
+
+let s:root = fnamemodify(resolve(expand('<sfile>:p')), ':h:h')
+execute 'source ' . fnameescape(s:root . '/plugin/pi_chat.vim')
+
+call writefile([], '/tmp/pibuf.txt')
+call writefile(['statuslog start'], '/tmp/pistatus.txt')
+
+" s:input_line is script-local to the plugin, so target the input line by
+" position: it is always the last line of the __PiChat__ buffer.
+function! s:SendAt(ms)
+  let l:b = bufnr('__PiChat__')
+  if l:b < 1
+    return
+  endif
+  execute 'buffer ' . l:b
+  call setline('$', 'hello fake')
+  call PiChatSendInput()
+endfunction
+
+function! s:Sample(ms)
+  call writefile([a:ms . ': ' . PiChatStatusText()], '/tmp/pistatus.txt', 'a')
+endfunction
+
+function! s:Final(ms)
+  let l:b = bufnr('__PiChat__')
+  call writefile(getbufline(l:b, 1, 100000), '/tmp/pibuf.txt')
+  call writefile([a:ms . ': ' . PiChatStatusText()], '/tmp/pistatus.txt', 'a')
+  execute 'qall!'
+endfunction
+
+call timer_start(300,  { -> execute('silent! PiOpen') })
+call timer_start(1000, { -> s:SendAt(1000) })
+call timer_start(500,  { -> s:Sample(500)  })
+call timer_start(1500, { -> s:Sample(1500) })
+call timer_start(2500, { -> s:Sample(2500) })
+call timer_start(3200, { -> s:Sample(3200) })
+call timer_start(3600, { -> s:Sample(3600) })
+call timer_start(4000, { -> s:Sample(4000) })
+call timer_start(5000, { -> s:Sample(5000) })
+call timer_start(7000, { -> s:Sample(7000) })
+call timer_start(9000, { -> s:Final(9000)  })
