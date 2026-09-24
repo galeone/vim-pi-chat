@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: :PiAbort requests an abort. Sends a prompt, then :PiAbort.
 " Expect the "⚠ abort requested" transcript line.
 set nocompatible

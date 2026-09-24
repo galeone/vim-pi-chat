@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: the :PiFile command (not just the config default) sets the context.
 " Expect the "pi-chat: context file: <path>" line for the file we name.
 set nocompatible

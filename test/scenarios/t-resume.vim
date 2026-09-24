@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " t-resume: file-keyed session resume wiring. On :PiOpen the plugin derives a
 " stable id from the opened file's resolved path and launches pi with
 " `--session-id pchat-<len>-<hash>` (create-or-resume). The id is derived from

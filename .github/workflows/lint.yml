@@ -1,0 +1,33 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install vint
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install 'vim-vint==0.3.21' 'setuptools<81'
+          .venv/bin/vint --version
+
+      - name: Lint plugin (vint)
+        run: .venv/bin/vint plugin/pi_chat.vim
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 25
+
+      - name: Syntax-check fake pi (node)
+        run: node --check test/fake-pi.js

@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " t-stall: the hang watchdog fires on a stalled (no-reply) run
 "
 " pi_chat_run_timeout=1 and FAKE_PI_DELAY_MS=2000 keep pi quiet past the 1s

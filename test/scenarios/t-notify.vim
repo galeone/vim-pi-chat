@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: notify levels render with distinct markers.
 " With FAKE_PI_NOTIFY_ALL=1 the fake emits info/warning/error notifies.
 " Expect the 'ℹ info note' / '⚠ warn note' / '⛔ error note' lines present.

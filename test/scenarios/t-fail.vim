@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: a failing tool renders the failure line. Runner env: FAKE_PI_TOOLFAIL=1.
 " Expect the "✗ <tool> failed" line (and, since the tool is bash, NO reload).
 set nocompatible

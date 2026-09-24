@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: thinking is HIDDEN when g:pi_chat_show_thinking=0 (the default).
 " Runner env: FAKE_PI_THINKING=1. Expect the "Echo:" reply but NO "Thinking:" line.
 set nocompatible
