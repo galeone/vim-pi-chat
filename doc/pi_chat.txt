@@ -1,0 +1,172 @@
+*pi_chat.txt*             For Vim 8.0+ / Neovim   *pi_chat* *g:pi_chat*
+
+==============================================================================
+Contents                                              *pi_chat-contents*
+
+    Commands ........................|pi_chat-commands|
+    Options ........................|g:pi_chat_*|
+    Keybindings ....................|pi_chat-keybindings|
+    Context file & autosave ........|pi_chat-context|
+    Live reload ....................|pi_chat-reload|
+    Streaming behavior .............|pi_chat-streaming|
+    Resuming a conversation ........|pi_chat-resuming|
+
+==============================================================================
+pi_chat — Pi agent chat in a vim split
+
+pi_chat spawns the Pi coding agent (`pi --mode rpc`) as a long-lived child
+process and chats with it from a dedicated vim window. Your prompts, pi's
+streamed replies, tool execution, and pi's own UI requests are rendered into
+the transcript in real time. The job is shared: opening the chat while the
+agent is running reuses the live conversation.
+
+==============================================================================
+Commands                                                          *pi_chat-commands*
+
+:PiOpen [<args>]                                              *:PiOpen*
+    Open (or focus) the chat window and start the agent. <args> are appended
+    to the pi command line (in addition to |g:pi_chat_args|).
+
+:PiSend [<args>]                                              *:PiSend*
+    Send a prompt to the agent from anywhere (opening the chat first if
+    needed).
+
+:PiAbort                                                      *:PiAbort*
+    Ask the agent to stop the current run.
+
+:PiModel <provider/modelId>                                   *:PiModel*
+    Switch the agent's model and confirm it took effect.
+
+:PiClear                                                      *:PiClear*
+    Start a fresh conversation (sends a `new_session` to the running agent).
+
+:PiClose                                                      *:PiClose*
+    Close the chat window and stop the agent.
+
+:PiFile [<file>]                                              *:PiFile*
+    Point the chat at <file> (default: the current buffer). The file is
+    injected into future prompts as context and its directory becomes the
+    agent's working directory.
+
+==============================================================================
+Options                                                             *g:pi_chat_*
+
+g:pi_chat_split                                            *g:pi_chat_split*
+    Window layout when opening the chat: 'vsplit' (default), 'split', or
+    'new' (new tab).
+    Default: 'vsplit'
+
+g:pi_chat_width                                          *g:pi_chat_width*
+    Width (vertical split) or height (horizontal) of the chat window.
+    An integer is an absolute column/row count; a float between 0 and 1
+    is a fraction of the screen (0.4 = 40%), resolved each time the
+    chat window opens. Note the size is re-applied whenever the chat is
+    opened or re-focused, so manual resizes don't persist.
+    Default: 60
+
+g:pi_chat_args                                            *g:pi_chat_args*
+    Extra arguments appended to the pi command line.
+    Default: []
+
+g:pi_chat_no_session                                    *g:pi_chat_no_session*
+    Pass --no-session to pi (no persistent session).
+    Default: 0
+
+g:pi_chat_streaming_behavior                  *g:pi_chat_streaming_behavior*
+    How a prompt is handled while the agent is running: 'followUp' (default)
+    queues it until the run fully settles; 'steer' injects it after the
+    current tool calls finish.
+    Default: 'followUp'
+
+g:pi_chat_show_thinking                            *g:pi_chat_show_thinking*
+    Render thinking deltas as they stream.
+    Default: 0
+
+g:pi_chat_map                                                *g:pi_chat_map*
+    Global normal-mode mapping for :PiOpen. Set to '' to disable.
+    Default: '<leader>pi'
+
+g:pi_chat_context_file                            *g:pi_chat_context_file*
+    Inject the current file's path into prompts as context (and run the agent
+    in that directory).
+    Default: 1
+
+g:pi_chat_autosave_context                      *g:pi_chat_autosave_context*
+    When the context file has unsaved changes at send time: 1 saves it
+    automatically; 0 (default) prompts you to save or cancel first.
+    Default: 0
+
+g:pi_chat_session_resume                      *g:pi_chat_session_resume*
+    :PiOpen resumes the pi conversation for the context file (else its
+    folder's conversation, else a new one). See |pi_chat-resuming|.
+    Default: 1
+
+g:pi_chat_session_fallback_dir              *g:pi_chat_session_fallback_dir*
+    When resuming, fall back to the file's folder session if there is no
+    file-level session.
+    Default: 1
+
+g:pi_chat_session_dir                              *g:pi_chat_session_dir*
+    Directory of the pi session store. '' (default) uses pi's own
+    (~/.pi/agent/sessions); set it to match a custom pi --session-dir.
+    Default: ''
+
+g:pi_chat_resume_max_messages                 *g:pi_chat_resume_max_messages*
+    How many prior messages to show at the top of the chat buffer on resume.
+    0 shows the whole transcript.
+    Default: 50
+
+==============================================================================
+Resuming a conversation                                        *pi_chat-resuming*
+
+:PiOpen remembers which conversation belongs to which file. A stable session
+id is derived from the context file's path and passed to pi as --session-id,
+so opening the same file again resumes that file's conversation; if there is
+no file session, pi falls back to the folder's conversation (a freshly opened
+file inherits its folder's history); otherwise a new conversation starts. On a
+resume the prior transcript is shown at the top of the chat buffer, above the
+input line. See |g:pi_chat_session_resume|, |g:pi_chat_session_fallback_dir|,
+|g:pi_chat_session_dir| and |g:pi_chat_resume_max_messages|. With
+|g:pi_chat_no_session| set, no session is used and nothing is resumed.
+
+==============================================================================
+Keybindings                                                   *pi_chat-keybindings*
+
+In the chat input line (insert mode):
+    <CR>        send the typed prompt
+    <C-CR>      insert a newline (build a multi-line prompt)
+    <C-c>       abort the current run
+
+    While pi is generating a turn, typing on the input line is ignored
+    (any typed text is reverted to the bare prompt). To queue or steer a
+    message while the agent is busy, use :PiSend explicitly.
+
+In normal mode (global):
+    A           jump to the chat input line
+    i           jump to the chat input line and start inserting
+
+==============================================================================
+Context file & autosave                                       *pi_chat-context*
+
+When a named buffer is open, pi_chat passes its path to the agent and runs the
+job in that directory. If the buffer has unsaved changes when you send a
+prompt, pi_chat either saves it first (|g:pi_chat_autosave_context| = 1) or
+asks you to (default), because pi edits the file on disk.
+
+==============================================================================
+Live reload                                                     *pi_chat-reload*
+
+When pi edits or writes your context file via its tools, pi_chat reloads the
+buffer from disk so you see the change immediately. If the buffer has your
+own unsaved changes, the reload is skipped with a notification and a
+`:e!` hint so it never clobbers your work.
+
+==============================================================================
+Streaming behavior                                            *pi_chat-streaming*
+
+pi's streamed reply is flushed into the transcript as deltas arrive (batched
+per Vim redraw). While a run is in progress a status spinner shows activity.
+If you send another prompt while the agent is busy, |g:pi_chat_streaming_behavior|
+decides whether it is queued (`followUp`) or injected mid-run (`steer`).
+
+vim:tw=78:ts=8:noet:ft=help:norl:
