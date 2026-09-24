@@ -1,0 +1,12 @@
+repos:
+  - repo: local
+    hooks:
+      - id: vint
+        name: vint (vimscript lint)
+        entry: vint
+        language: python
+        additional_dependencies:
+          - vim-vint==0.3.21
+          - "setuptools<81"
+        types: [file]
+        files: '^(plugin|autoload)/.*\.vim$'

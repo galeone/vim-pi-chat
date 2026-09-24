@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: :PiClear resets the transcript. Send prompt A, clear, send prompt B.
 " Expect "Echo: second" present and "Echo: first" GONE.
 set nocompatible

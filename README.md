@@ -231,7 +231,7 @@ Expected results (see `test/vimrc-test` header for the full spec):
 Lint gates:
 
 ```sh
-.venv/bin/vint plugin/pi_chat.vim   # vint 0.3.21; requires setuptools <81
+.venv/bin/vint plugin/pi_chat.vim   # pip install 'vim-vint==0.3.21' 'setuptools<81'
 node --check test/fake-pi.js
 ```
 
