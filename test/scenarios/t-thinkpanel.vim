@@ -1,3 +1,4 @@
+" vim: set ft=vim ts=2 sw=2 sts=2 et:
 " Scenario: :PiThinking opens a separate panel buffer that streams the
 " model's thinking live (g:pi_chat_show_thinking stays 0, so the chat buffer
 " must NOT receive the thinking text).  Toggle off keeps the buffer content,
