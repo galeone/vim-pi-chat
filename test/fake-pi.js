@@ -47,6 +47,7 @@ process.stdin.on('data', (chunk) => {
         const turn  = parseInt(process.env.FAKE_PI_TURN_MS  || '150', 10);
         const tool  = process.env.FAKE_PI_TOOL || 'bash';
         const think = process.env.FAKE_PI_THINKING === '1';
+        const thinkText = process.env.FAKE_PI_THINKING_TEXT || 'Thinking: weighing the options';
         const title = process.env.FAKE_PI_TITLE || 'pi';
         const prefix= process.env.FAKE_PI_REPLY_PREFIX || 'Echo: ';
         const editPath = process.env.FAKE_PI_EDIT_PATH || 'ctx.txt';
@@ -57,7 +58,7 @@ process.stdin.on('data', (chunk) => {
 
           if (think) {
             emit({ type: 'message_start', message: { role: 'assistant' } });
-            for (const c of 'Thinking: weighing the options') {
+            for (const c of thinkText) {
               emit({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', delta: c } });
             }
             emit({ type: 'message_end', message: { role: 'assistant' } });
