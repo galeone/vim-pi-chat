@@ -1804,6 +1804,13 @@ function! s:StopDrain()
 endfunction
 
 function! s:DrainTick(timer)
+  " An idle tick (no queued events, not busy) edits nothing, so it must not
+  " hop windows: hopping to the chat window and back every 50ms while the
+  " user sits in the thinking panel (or any other window) is a perpetual
+  " cursor-jump redraw storm that pegs GPU-accelerated terminals at 100%.
+  if empty(s:queue) && !s:busy
+    return
+  endif
   " Run the entire tick with the chat window current (see s:WithChatWin): the
   " queued events and the spinner both edit the chat buffer by line number, so
   " they must not run while the user is in the thinking panel or elsewhere.
