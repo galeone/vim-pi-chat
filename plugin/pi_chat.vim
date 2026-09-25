@@ -126,6 +126,12 @@ let s:typing_guard = 0
 " buffer where the model's thinking streams live. -1 = never created.
 let s:think_buf = -1       " bufnr of the thinking panel buffer, or -1
 let s:think_text = ''      " full thinking text for the current turn
+" Buffers already given buffer-local markdown highlighting (avoid dupes).
+let s:md_done = {}
+" Optional glow(1) preview for the thinking panel: window id + temp file.
+let s:think_glow_win = -1
+let s:think_glow_tmp = ''
+let s:think_glow_width = 80
 
 " Buffer invariants:
 "   lines 1 .. len(s:transcript) are the read-only log and must always match
@@ -182,6 +188,7 @@ function! s:PiOpen(...)
       let s:pending_msg = ''
       call s:UserPrompt(l:m)
     endif
+    call s:PiShowThinking()
     return
   endif
 
@@ -196,6 +203,7 @@ function! s:PiOpen(...)
       let s:pending_msg = ''
       call s:UserPrompt(l:m)
     endif
+    call s:PiShowThinking()
     return
   endif
 
@@ -210,6 +218,7 @@ function! s:PiOpen(...)
     let s:pending_msg = ''
     call s:UserPrompt(l:m)
   endif
+  call s:PiShowThinking()
 endfunction
 
 function! s:PiSend(...)
@@ -636,8 +645,9 @@ function! s:ThinkBufInit()
   " spaces in this vim: `:setlocal statusline='… …'` raises E518 (value split
   " on spaces) and the double-quoted :setlocal form is silently dropped.
   let &l:statusline = ' pi thinking '
-  syn match PiChatThinking '^.*$'
-  hi def link PiChatThinking Comment
+  " Markdown highlighting (headings, bold/italic, code, lists, links) —
+  " buffer-local, layered on when g:pi_chat_markdown is on.
+  call s:ApplyMarkdown()
 endfunction
 
 " Number of lines in the panel buffer (getbufline-based: buflinecount() is
@@ -731,6 +741,9 @@ function! s:FlushThinkTail()
     call cursor(len(l:render), 1)
     call win_gotoid(l:here)
   endif
+  if s:think_glow_win > 0
+    call s:ThinkGlowRender()
+  endif
 endfunction
 
 function! s:ThinkCloseAll()
@@ -749,7 +762,143 @@ function! s:ThinkCloseAll()
   let s:think_text = ''
 endfunction
 
+" ------------------- markdown highlighting (in-place, buffer-local) ---------
+
+" Apply buffer-local markdown syntax to the current buffer, once per buffer.
+" Purely visual (syn + hi link) — never touches buffer text, so the chat
+" input line, transcript guards and streaming pipeline are unaffected.
+function! s:ApplyMarkdown()
+  if !get(g:, 'pi_chat_markdown', 1)
+    return
+  endif
+  let l:b = bufnr('%')
+  if has_key(s:md_done, l:b)
+    return
+  endif
+  let s:md_done[l:b] = 1
+  syn match PiMdFence     '^\s*```\S*'
+  syn region PiMdCodeBlock start=/^\s*```/ end=/^\s*```/ contains=PiMdFence keepend
+  syn match PiMdHeading   '^#\+\s\+\S.*\|^#\+\s*$'
+  syn match PiMdBold      '\*\*\S.*\S\*\*'
+  syn match PiMdItalic    '\*\S[^*]*\S\*\|\*\S[^*]*$'
+  syn match PiMdCode      '`[^`]\+`'
+  syn match PiMdList      '^\s*[-*+]\s\|^\s*[0-9]\+\.\s'
+  syn match PiMdQuote     '^>.*'
+  syn match PiMdLink      '\[[^]]*\]([^)]*)'
+  hi def link PiMdHeading   Title
+  hi def link PiMdBold      Bold
+  hi def link PiMdItalic    Italic
+  hi def link PiMdCode      Special
+  hi def link PiMdCodeBlock Special
+  hi def link PiMdFence     Comment
+  hi def link PiMdList      Keyword
+  hi def link PiMdQuote     Comment
+  hi def link PiMdLink      Underlined
+endfunction
+
+" -------------------- optional glow(1) markdown preview ---------------------
+
+function! s:GlowAvailable()
+  return get(g:, 'pi_chat_thinking_glow', 0) && has('terminal') && executable('glow')
+endfunction
+
+function! s:ThinkGlowOpen()
+  if s:think_glow_win > 0
+    return
+  endif
+  let s:think_glow_tmp = tempname() . '.md'
+  call writefile(split(s:think_text, "\n", 1), s:think_glow_tmp)
+  let l:here = win_getid()
+  botright vertical split
+  let s:think_glow_width = (winwidth(0) / 2) - 4
+  if s:think_glow_width < 40
+    let s:think_glow_width = 40
+  endif
+  execute 'vertical resize ' . s:think_glow_width
+  terminal
+  let s:think_glow_win = win_getid()
+  call s:ThinkGlowRender()
+  call win_gotoid(l:here)
+endfunction
+
+" Re-run glow on the temp file (a persistent shell terminal, driven by keys).
+function! s:ThinkGlowRender()
+  if s:think_glow_win < 0 || empty(s:think_text)
+    return
+  endif
+  call writefile(split(s:think_text, "\n", 1), s:think_glow_tmp)
+  let l:buf = winbufnr(s:think_glow_win)
+  if l:buf > 0 && bufvalid(l:buf)
+    try
+      call term_sendkeys(l:buf, 'clear; glow -w ' . s:think_glow_width . ' ' . fnameescape(s:think_glow_tmp) . "\<CR>")
+    catch
+    endtry
+  endif
+endfunction
+
+function! s:ThinkGlowClose()
+  if s:think_glow_win > 0
+    let l:here = win_getid()
+    if win_gotoid(s:think_glow_win)
+      close
+    endif
+    call win_gotoid(l:here)
+    let s:think_glow_win = -1
+  endif
+  if !empty(s:think_glow_tmp) && filereadable(s:think_glow_tmp)
+    delete(s:think_glow_tmp)
+    let s:think_glow_tmp = ''
+  endif
+endfunction
+
+" :PiMarkdown — open a glow(1) preview of the chat buffer in a split.
+function! s:PiMarkdown()
+  if !has('terminal') || !executable('glow')
+    echo 'pi chat: glow not found (brew install glow) and +terminal required'
+    return
+  endif
+  if s:buf < 1
+    echo 'pi chat: no chat to preview'
+    return
+  endif
+  let l:tmp = tempname() . '.md'
+  call writefile(getbufline(s:buf, 1, '$'), l:tmp)
+  let l:here = win_getid()
+  botright vertical split
+  let l:w = (winwidth(0) / 2) - 4
+  if l:w < 40
+    let l:w = 40
+  endif
+  execute 'vertical resize ' . l:w
+  terminal
+  call term_sendkeys(winbufnr(0), 'clear; glow -w ' . l:w . ' ' . fnameescape(l:tmp) . "\<CR>")
+  call win_gotoid(l:here)
+endfunction
+command! -nargs=0 PiMarkdown call s:PiMarkdown()
+
+" :PiOpen opens both panels: show the thinking view (text panel or glow
+" preview) if it isn't already open.
+function! s:PiShowThinking()
+  if s:think_glow_win > 0
+    return
+  endif
+  if s:think_buf > 0 && bufwinnr(s:think_buf) != -1
+    return
+  endif
+  call s:PiThinking()
+endfunction
+
 function! s:PiThinking()
+  " Optional glow(1) preview: drive a live terminal instead of the text panel.
+  if s:GlowAvailable()
+    if s:think_glow_win > 0
+      call s:ThinkGlowClose()
+      echo 'pi chat: thinking preview hidden (content kept)'
+    else
+      call s:ThinkGlowOpen()
+    endif
+    return
+  endif
   if s:think_buf > 0 && bufwinnr(s:think_buf) != -1
     " toggle off: the window closes, the buffer (and its content) survives
     call win_gotoid(bufwinid(s:think_buf))
@@ -984,6 +1133,61 @@ function! s:LoadSessionTranscript(sid) abort
   return l:out
 endfunction
 
+" Prior thinking for a session, in order: for each assistant thinking block, a
+" '──── <prompt>' marker (the flattened user message that preceded it, so the
+" resumed panel reads like the live one) followed by the thinking text.
+function! s:LoadSessionThinking(sid) abort
+  if empty(a:sid)
+    return []
+  endif
+  let l:files = glob(s:SessionBaseDir() . '/*/*' . a:sid . '.jsonl', 1, 1)
+  if type(l:files) == v:t_string
+    let l:files = split(l:files, "\n")
+  endif
+  if empty(l:files)
+    return []
+  endif
+  let l:entries = []
+  let l:last_user = ''
+  for l:raw in readfile(l:files[0])
+    if l:raw !~# '"type":"message"'
+      continue
+    endif
+    try
+      let l:obj = json_decode(l:raw)
+    catch
+      continue
+    endtry
+    let l:msg = get(l:obj, 'message', {})
+    let l:role = type(l:msg) == v:t_dict ? get(l:msg, 'role', '') : ''
+    if l:role ==# 'user'
+      let l:utext = s:MessageText(l:msg)
+      if !empty(l:utext)
+        let l:last_user = substitute(l:utext, '\n', ' ', 'g')
+      endif
+    elseif l:role ==# 'assistant'
+      let l:think = s:MessageThinking(l:msg)
+      if !empty(l:think)
+        let l:sec = []
+        if !empty(l:last_user)
+          call add(l:sec, '──── ' . l:last_user)
+        endif
+        call add(l:sec, l:think)
+        call add(l:entries, l:sec)
+      endif
+    endif
+  endfor
+  let l:cap = get(g:, 'pi_chat_resume_max_messages', 50)
+  if type(l:cap) == v:t_number && l:cap > 0 && len(l:entries) > l:cap
+    let l:entries = l:entries[len(l:entries) - l:cap :]
+  endif
+  let l:out = []
+  for l:sec in l:entries
+    call extend(l:out, l:sec)
+  endfor
+  return l:out
+endfunction
+
 " Readable text of a session message (a plain string or a list of content
 " blocks), keeping only text blocks so the replay reads as a clean conversation.
 function! s:MessageText(msg) abort
@@ -1001,6 +1205,28 @@ function! s:MessageText(msg) abort
   for l:block in l:content
     if type(l:block) == v:t_dict && get(l:block, 'type', '') ==# 'text'
       let l:t = get(l:block, 'text', '')
+      if !empty(l:t)
+        call add(l:parts, l:t)
+      endif
+    endif
+  endfor
+  return join(l:parts, "\n")
+endfunction
+
+" Thinking text of a session message: the 'thinking' content blocks of an
+" assistant message, joined (empty for messages without any).
+function! s:MessageThinking(msg) abort
+  if type(a:msg) != v:t_dict
+    return ''
+  endif
+  let l:content = get(a:msg, 'content', '')
+  if type(l:content) != v:t_list
+    return ''
+  endif
+  let l:parts = []
+  for l:block in l:content
+    if type(l:block) == v:t_dict && get(l:block, 'type', '') ==# 'thinking'
+      let l:t = get(l:block, 'thinking', '')
       if !empty(l:t)
         call add(l:parts, l:t)
       endif
@@ -1090,6 +1316,13 @@ function! s:StartJob()
       let l:prior = s:LoadSessionTranscript(s:session_id)
       if !empty(l:prior)
         call s:AddLogLines(l:prior)
+      endif
+      " Resume the thinking panel the same way: re-read the session's thinking
+      " so :PiThinking shows prior turns (rendered on open via the flush).
+      let l:think = s:LoadSessionThinking(s:session_id)
+      if !empty(l:think)
+        let s:think_text = join(l:think, "\n") . "\n"
+        call s:FlushThinkTail()
       endif
     endif
     call setline(line('$') + 1, '❯ ')
@@ -1463,6 +1696,7 @@ function! s:BufSetup()
   hi def link PiChatNoticeInfo  Comment
   hi def link PiChatNoticeError ErrorMsg
   hi def link PiChatHint        NonText
+  call s:ApplyMarkdown()
 
   " The transcript stays modifiable (programmatic :append/setline fail under
   " nomodifiable) but is reverted by s:GuardTranscript on any interactive edit;

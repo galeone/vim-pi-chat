@@ -61,13 +61,13 @@ Requirements:
 
 | Command | Effect |
 | --- | --- |
-| `:PiOpen` | open the chat (vertical split on the right by default) |
-| `:PiOpen <message>` | open and immediately send `<message>` |
+| `:PiOpen` | open the chat **and** the thinking panel (chat in a vertical split on the right by default) |
+| `:PiOpen <message>` | open (chat + thinking) and immediately send `<message>` |
 | `:PiSend <text>` | send a prompt (no text: jump to the chat and start typing) |
 | `:PiAbort` | abort the current run (`{"type":"abort"}`) |
 | `:PiModel <pattern>` | switch model, e.g. `:PiModel anthropic/claude-sonnet-4-5` |
 | `:PiClear` | start a fresh session (`new_session`) |
-| `:PiThinking` | toggle a small read-only panel below the chat streaming the model's thinking live, auto-scrolled to the newest line (height: `g:pi_chat_thinking_height`). Thoughts accumulate even while hidden, under a `──── prompt` marker per turn, so opening it later shows past thinking; `:PiClear` / `:PiClose` wipe it |
+| `:PiThinking` | toggle a small read-only panel below the chat (opened automatically with `:PiOpen`) streaming the model's thinking live, auto-scrolled to the newest line (height: `g:pi_chat_thinking_height`). Thoughts accumulate even while hidden, under a `──── prompt` marker per turn, so opening it later shows past thinking; `:PiClear` / `:PiClose` wipe it |
 | `:PiClose` | stop the agent and close (tear down) the chat |
 | `:PiFile [path]` | show or set the context file (see below) |
 | `<leader>pi` | `:PiOpen` (default mapping, set `g:pi_chat_map` to change) |

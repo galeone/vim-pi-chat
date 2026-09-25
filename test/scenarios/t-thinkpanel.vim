@@ -77,7 +77,6 @@ function! s:Final(ms)
   execute 'qall!'
 endfunction
 call timer_start(300,  { -> execute('silent! PiOpen') })
-call timer_start(800,  { -> execute('silent! PiThinking') })
 call timer_start(1000, { -> s:SendAt(1000) })
 call timer_start(4000, { -> execute('call s:State("t4off") | silent! PiThinking') })
 call timer_start(6000, { -> execute('call s:State("t6on") | silent! PiThinking') })

@@ -119,6 +119,14 @@ and then acting"
               check thinkpanel '──── think about it' '' '' ;;
     tools)    export FAKE_PI_THINKING= FAKE_PI_TOOL=multi; run tools 13;  check tools '✓ edit' '' '' ;;
     multi)    export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run multi 10;  check multi '' '' 'Echo:' ;;
+    markdown) export FAKE_PI_THINKING= FAKE_PI_TOOL=
+              run markdown 6
+              # s:ApplyMarkdown must define each PiMd* group, link it to the right
+              # target, AND create a real syn match/region item for it (want a
+              # sample fully-ok, forbid absent/mismatch/item-missing, want >=2 ok).
+              # Headless: synID rendering is a no-op, but :hi + :syntax list are
+              # observable; the item check catches syn lines that silently fail.
+              check markdown 'PiMdHeading: ok' 'absent\|mismatch\|item-missing' ': ok' ;;
     working)  export FAKE_PI_DELAY_MS=2500 FAKE_PI_TURN_MS=100 FAKE_PI_THINKING= FAKE_PI_TOOL=
               run working 7
               # in flight: working line shown, reply not yet; after settle: reply in, working gone.
@@ -149,6 +157,19 @@ the options, carefully"
               # it, even though the thinking panel was the current window while
               # the reply burst was drained (the old code raised E21 here too)
               check leak 'Echo: leak check prompt' 'Thinking:' '' ;;
+    resumethink) export FAKE_PI_THINKING= FAKE_PI_TOOL=
+              # hermetic session dir with prior turns carrying thinking; a fresh
+              # :PiOpen resumes BOTH the chat transcript and the thinking panel
+              run resumethink 6
+              check resumethink 'session-file-exists: 1' '' ''
+              check resumethink 'chat-resumed-marker: 1' '' ''
+              check resumethink 'chat-transcript-1: 1' '' ''
+              check resumethink 'chat-transcript-2: 1' '' ''
+              check resumethink 'panel-open: [1-9]' '' ''
+              check resumethink 'panel-thought-1: 1' '' ''
+              check resumethink 'panel-thought-2: 1' '' ''
+              check resumethink 'panel-marker-1: 1' '' ''
+              check resumethink 'panel-marker-2: 1' '' '' ;;
     *)        export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run "$name" 10; check "$name" '' '' '' ;;
   esac
 done
