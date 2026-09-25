@@ -29,8 +29,9 @@ line, events come back as one JSON object per line. The plugin:
   never interrupts you mid-keystroke;
 - renders `text_delta` deltas incrementally (line-buffered), tool executions
   as `⚙ …` / `✓ …` / `✗ …` lines, and your prompts as `❯ …`;
-- answers extension UI requests (`notify`, `confirm`, `select`, `input`,
-  `editor`) using native Vim dialogs.
+- answers extension UI requests: `notify` renders as an in-chat transcript
+  line with a level marker (ℹ/⚠/⛔), `confirm`/`select`/`input` use native Vim
+  dialogs, and `editor` opens a scratch buffer.
 
 The conversation buffer is a plain text buffer. Everything is the transcript
 except the `❯` prompt block at the bottom: type there, `<CR>` sends, and
@@ -66,6 +67,7 @@ Requirements:
 | `:PiAbort` | abort the current run (`{"type":"abort"}`) |
 | `:PiModel <pattern>` | switch model, e.g. `:PiModel anthropic/claude-sonnet-4-5` |
 | `:PiClear` | start a fresh session (`new_session`) |
+| `:PiThinking` | toggle a small read-only panel below the chat streaming the model's thinking live, auto-scrolled to the newest line (height: `g:pi_chat_thinking_height`). Thoughts accumulate even while hidden, under a `──── prompt` marker per turn, so opening it later shows past thinking; `:PiClear` / `:PiClose` wipe it |
 | `:PiClose` | stop the agent and close (tear down) the chat |
 | `:PiFile [path]` | show or set the context file (see below) |
 | `<leader>pi` | `:PiOpen` (default mapping, set `g:pi_chat_map` to change) |
@@ -126,18 +128,21 @@ the chat buffer, above the input line, so you have the context as you keep
 working.
 
 This is on by default. `g:pi_chat_no_session` still wins and forces a
-disposable conversation. The config below turns it off or tunes the fallback
-and how much history is shown.
+disposable conversation. `g:pi_chat_session_resume = 0` passes no session id
+at all, and pi then applies its own default (resume most recent session).
+The config below turns it off or tunes the fallback and how much history is
+shown.
 
 ## Configuration (`.vimrc`)
 
 ```vim
 let g:pi_chat_split = 'vsplit'          " 'vsplit' (default) | 'split' | 'new'
-let g:pi_chat_width = 60                " split width/height
+let g:pi_chat_width = 60                " split width/height (float 0-1 = fraction of the window)
 let g:pi_chat_args = []                 " extra pi args, e.g. ['--model', '...']
 let g:pi_chat_no_session = 0            " 1 = pass --no-session
 let g:pi_chat_streaming_behavior = 'followUp'  " 'followUp' (default) or 'steer'
-let g:pi_chat_show_thinking = 0         " 1 = render thinking deltas
+let g:pi_chat_show_thinking = 0         " 1 = also render thinking deltas inline in the chat
+let g:pi_chat_thinking_height = 0.3     " :PiThinking panel height: float 0-1 of the window, or lines
 let g:pi_chat_map = '<leader>pi'        " '' disables the global mapping
 let g:pi_chat_context_file = 1          " 1 = inject the context file into prompts
 let g:pi_chat_autosave_context = 0      " 1 = save the context file before each send (else prompt)
@@ -161,16 +166,17 @@ conversation for the context file, falling back to its folder's conversation
 (`g:pi_chat_session_fallback_dir`) when there is no file-level session, else
 starting a new one. `g:pi_chat_resume_max_messages` caps how many prior messages
 are shown on resume (`0` = the whole transcript, handy for a long-running file).
-`g:pi_chat_no_session = 1` disables resuming entirely.
+`g:pi_chat_no_session = 1` forces a disposable (unpersisted) conversation.
 
 ## Limitations
 
 - Multi-line prompts are opened with `<C-CR>` only (there is no
   `<C-o><CR>`-style alias); if your terminal remaps `<C-CR>`, multi-line
   prompt input won't work.
-- The transcript is plain text in a modifiable buffer; scrolling up while
-  output streams will pull you back down only if you were sitting at the
-  input line.
+- The transcript is plain text in a modifiable buffer.  If the chat window
+  is focused, scrolling up while output streams leaves you in place; if
+  focus is elsewhere, the window auto-follows the newest line so live
+  updates stay visible without stealing focus.
 - `bash_execution_update` progress and partial tool arguments are not
   rendered (tool status lines only).
 - Extension `editor` requests open a temporary scratch buffer (`:w` saves,
@@ -180,8 +186,8 @@ are shown on resume (`0` = the whole transcript, handy for a long-running file).
 
 Run the whole end-to-end suite (the basic E2E plus the scenarios in
 `test/scenarios/`: `abort`, `clear`, `close`, `fail`, `model`, `multi`,
-`nosession`, `notify`, `pifile`, `pifilecmd`, `pisend`, `think`, `thinkoff`,
-`tools`, `working`) from the repo root. The `stall` watchdog scenario is
+`nosession`, `notify`, `pifile`, `pifilecmd`, `pisend`, `resume`, `think`,
+`thinkoff`, `thinkpanel`, `tools`, `working`) from the repo root. The `stall` watchdog scenario is
 manual-only (a slow fake triggers a headless hit-enter barrier):
 
 ```sh

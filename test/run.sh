@@ -100,10 +100,23 @@ for f in test/scenarios/t-*.vim; do
               check pisend 'Echo: pi send test' '' '' ;;
     think)    export FAKE_PI_THINKING=1 FAKE_PI_TOOL=;    run think 10;  check think 'Thinking:' '' '' ;;
     thinkoff) export FAKE_PI_THINKING=1 FAKE_PI_TOOL=;    run thinkoff 10; check thinkoff 'Echo:' 'Thinking:' '' ;;
-    thinkpanel) export FAKE_PI_THINKING=1 FAKE_PI_TOOL=; run thinkpanel 10
-              # panel buffer gets the thinking text, the chat reply does not
-              # leak into it, and toggle off/on keeps and restores the window
-              check thinkpanel 'Thinking: weighing the options' 'Echo:' 'wins: 3' ;;
+    thinkpanel) export FAKE_PI_THINKING=1 FAKE_PI_TOOL=
+                # multi-line thinking text so the auto-scroll assertion is real
+                export FAKE_PI_THINKING_TEXT="Thinking: weighing
+the options, carefully
+and then acting"
+              run thinkpanel 10
+              # panel buffer gets the (multi-line) thinking text, the chat
+              # reply does not leak into it, and toggle off/on keeps and
+              # restores the window
+              check thinkpanel 'Thinking: weighing' 'Echo:' 'wins: 3'
+              # panel is read-only (nomodifiable) and auto-scrolls to the
+              # bottom: 4 rendered lines (prompt marker + 3 thinking lines),
+              # cursor parked on line 4
+              check thinkpanel 'mod: 0' '' ''
+              check thinkpanel 'cur: 4/4' '' ''
+              # per-turn prompt marker keeps the thinking history visible
+              check thinkpanel '──── think about it' '' '' ;;
     tools)    export FAKE_PI_THINKING= FAKE_PI_TOOL=multi; run tools 13;  check tools '✓ edit' '' '' ;;
     multi)    export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run multi 10;  check multi '' '' 'Echo:' ;;
     working)  export FAKE_PI_DELAY_MS=2500 FAKE_PI_TURN_MS=100 FAKE_PI_THINKING= FAKE_PI_TOOL=
@@ -128,6 +141,14 @@ for f in test/scenarios/t-*.vim; do
               # :PiOpen launches pi with --session-id pchat-… (path-keyed, create-or-resume)
               check resume 'session_id_match=1 pchat=1' '' ''
               export FAKE_PI_ARGV_LOG= ;;
+    leak)     export FAKE_PI_THINKING=1 FAKE_PI_TOOL=
+              export FAKE_PI_THINKING_TEXT="Thinking: weighing
+the options, carefully"
+              run leak 5
+              # the reply must land in CHAT and the thinking must NOT leak into
+              # it, even though the thinking panel was the current window while
+              # the reply burst was drained (the old code raised E21 here too)
+              check leak 'Echo: leak check prompt' 'Thinking:' '' ;;
     *)        export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run "$name" 10; check "$name" '' '' '' ;;
   esac
 done

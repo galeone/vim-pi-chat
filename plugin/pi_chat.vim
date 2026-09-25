@@ -254,6 +254,48 @@ function! s:FindWin()
   return l:win
 endfunction
 
+" Run a closure with the chat window guaranteed current.  The chat pipeline
+" (s:AddLogLines/s:FlushTail/s:CaptureTranscript/s:CommitTail/s:SpinnerUpdate)
+" addresses the CURRENT window by line number (append/setline/getline), so it
+" must run with chat current.  But the 50ms drain timer and the job-exit
+" callback fire whenever the event loop turns, even while the user is in the
+" thinking panel or another window - without this, those ops would write to
+" the wrong buffer and s:CaptureTranscript would copy the *panel's* text into
+" s:transcript, which the next s:GuardTranscript then dumps into the chat.
+"
+" A pure focus hop fires no BufWinEnter/BufWinLeave (the buffer stays on
+" display in its window) and Vim defers the redraw until the closure returns,
+" so the hop is invisible and the park/resume logic is untouched.  On the way
+" out we park the chat cursor on the prompt line so an unfocused chat
+" auto-follows its newest content, then restore the user's window.
+function! s:WithChatWin(fn)
+  let l:win = s:FindWin()
+  if l:win < 1 || win_getid() == l:win
+    " Chat absent or already current: run in place.
+    return a:fn()
+  endif
+  let l:here = win_getid()
+  try
+    call win_gotoid(l:win)
+  catch
+    " Chat window vanished mid-tick; degrade to running in the current window.
+    return a:fn()
+  endtry
+  try
+    let l:r = a:fn()
+  finally
+    if win_getid() == l:win && s:buf > 0 && s:input_line > 0
+      let l:n = min([s:input_line, line('$')])
+      call cursor(l:n, s:InputCol(l:n))
+    endif
+    try
+      call win_gotoid(l:here)
+    catch
+    endtry
+  endtry
+  return l:r
+endfunction
+
 function! s:GotoInput()
   call s:SyncInputLine()
   if s:buf > 0 && buflisted(s:buf) && s:input_line > 0
@@ -565,12 +607,18 @@ endfunction
 
 " ------------------------------ thinking panel -----------------------------
 " :PiThinking toggles a small horizontal panel below the chat where the
-" model's thinking streams live.  The panel is a separate, MODIFIABLE buffer
-" (the build-quirk note above applies to it too), and every line write goes
-" through buffer-local functions (appendbufline/setbufline) so a drain tick
-" never steals focus.  Closing the panel keeps its content (bufhidden=hide),
-" so toggling off/on mid-turn preserves what already streamed.  Each new
-" prompt and :PiClear reset it; :PiClose destroys it.
+" model's thinking streams live.  The panel is a separate, NOMODIFIABLE
+" buffer, so the user can browse it (ctrl+w) but can't edit or delete
+" streamed thinking.  This build makes setbufline/deletebufline honor that
+" (E21), so programmatic writes run through s:ThinkBufWrite, which flips
+" 'modifiable' for the duration of the write - the same quirk the chat
+" transcript works around with s:GuardTranscript.  Writes go through
+" buffer-local functions so a drain tick never steals focus, and the panel
+" cursor is re-parked at the bottom on every flush, so the panel
+" auto-scrolls while lines are still arriving.  Closing the panel keeps its
+" content (bufhidden=hide), so toggling off/on mid-turn preserves what
+" already streamed.  Each new prompt and :PiClear reset it; :PiClose
+" destroys it.
 
 function! s:ThinkPanelHeight()
   let l:h = get(g:, 'pi_chat_thinking_height', 0.3)
@@ -603,6 +651,48 @@ function! s:ThinkReset()
   if s:think_buf < 0 || !bufexists(s:think_buf)
     return
   endif
+  call s:ThinkBufWrite({ -> s:ThinkBufClear() })
+endfunction
+
+" a new prompt appends a marker line instead of clearing, so the panel keeps
+" the conversation's thinking history, each turn under its prompt marker.
+function! s:ThinkNewTurn(text)
+  let l:head = '──── ' . substitute(a:text, '\n', ' ', 'g')
+  if empty(s:think_text)
+    let s:think_text = l:head . "\n"
+  else
+    let s:think_text .= "\n" . l:head . "\n"
+  endif
+  call s:FlushThinkTail()
+endfunction
+
+" Runs a:func with the panel buffer temporarily modifiable.  The buffer is
+" nomodifiable so the user can't edit streamed thinking, but this build
+" makes setbufline/deletebufline fail with E21 on such buffers, so every
+" programmatic write flips the option for the duration of the closure.
+function! s:ThinkBufWrite(func)
+  call setbufvar(s:think_buf, '&modifiable', 1)
+  try
+    call a:func()
+  finally
+    call setbufvar(s:think_buf, '&modifiable', 0)
+  endtry
+endfunction
+
+" (Re)writes the panel buffer's lines to a:lines.  Only called with the
+" buffer temporarily modifiable (see s:ThinkBufWrite).
+function! s:ThinkBufSync(lines)
+  for l:i in range(1, len(a:lines))
+    call setbufline(s:think_buf, l:i, a:lines[l:i - 1])
+  endfor
+  let l:old = s:ThinkLineCount()
+  if l:old > len(a:lines)
+    call deletebufline(s:think_buf, len(a:lines) + 1, l:old)
+  endif
+endfunction
+
+" Empties the panel buffer back to a single blank line.
+function! s:ThinkBufClear()
   call setbufline(s:think_buf, 1, '')
   let l:n = s:ThinkLineCount()
   if l:n > 1
@@ -610,15 +700,16 @@ function! s:ThinkReset()
   endif
 endfunction
 
-" Append the un-flushed fragment to the panel buffer.  Follows the bottom only
-" while the cursor is already within two lines of it (so manual browsing of
-" the panel is not yanked back); touches the background window via cursor()
-" without ever moving focus.
 " Re-renders the panel buffer from s:think_text (complete lines plus the
 " trailing fragment).  The buffer is small (a few hundred lines at most), so
-" a full setbufline sync per flush is cheap; the background window never
-" gains focus, and its cursor is followed to the bottom only when it was
-" already near the bottom, so reading older thinking never gets yanked.
+" a full setbufline sync per flush is cheap.  The cursor is re-parked at the
+" bottom on every flush, so while the model is still thinking the panel
+" always auto-scrolls to the newest line; once the stream settles the user
+" is free to scroll back up (the buffer is nomodifiable, so browsing can't
+" clobber the content).  Parking is a win_gotoid hop: this build's cursor()
+" has no {win} argument (cursor(w, n) silently acts on the CURRENT window),
+" and redraw is deferred until this flush returns, so the hop never steals
+" focus.
 function! s:FlushThinkTail()
   if s:think_buf < 0 || empty(s:think_text)
     return
@@ -632,20 +723,13 @@ function! s:FlushThinkTail()
   if l:render == l:old
     return
   endif
+  call s:ThinkBufWrite({ -> s:ThinkBufSync(l:render) })
   let l:win = bufwinid(s:think_buf)
-  let l:follow = (l:win > 0)
-        \ && (len(l:old) <= 3 || len(l:old) - getwinvar(l:win, 'cursor')[0] <= 2)
-  let l:n = len(l:render)
-  let l:i = 0
-  while l:i < l:n
-    call setbufline(s:think_buf, l:i + 1, l:render[l:i])
-    let l:i += 1
-  endwhile
-  if len(l:old) > l:n
-    call deletebufline(s:think_buf, l:n + 1, len(l:old))
-  endif
-  if l:follow
-    call cursor(l:win, l:n)
+  if l:win > 0
+    let l:here = win_getid()
+    call win_gotoid(l:win)
+    call cursor(len(l:render), 1)
+    call win_gotoid(l:here)
   endif
 endfunction
 
@@ -683,6 +767,9 @@ function! s:PiThinking()
   if l:first
     let s:think_buf = bufadd('__PiChatThinking__')
     call setbufline(s:think_buf, 1, '')
+    " Read-only for the user: ctrl+w into the panel is fine for reading, but
+    " typing/deleting streamed thinking is refused (E519).
+    call setbufvar(s:think_buf, '&modifiable', 0)
   endif
   " open the new window below the chat window when we can find it
   " win_gotoid jumps to the window by ID. (execute l:winid . 'wincmd w' would
@@ -698,10 +785,17 @@ function! s:PiThinking()
   if l:cwin > 0
     call win_gotoid(l:cwin)
   endif
-  " park the panel's cursor at the bottom so the next delta is followed
+  " render any thinking that accumulated before the panel existed (the flush
+  " parks the cursor too), then always park at the bottom so the next delta
+  " is followed; via win_gotoid hops since this build's cursor() has no
+  " {win} form
+  call s:FlushThinkTail()
   let l:win = bufwinid(s:think_buf)
   if l:win > 0
-    call cursor(l:win, s:ThinkLineCount())
+    let l:here = win_getid()
+    call win_gotoid(l:win)
+    call cursor(s:ThinkLineCount(), 1)
+    call win_gotoid(l:here)
   endif
 endfunction
 
@@ -727,8 +821,8 @@ endif
 " ------------------------------ job control --------------------------------
 
 function! s:UserPrompt(text)
-  " a new prompt starts a fresh thinking block
-  call s:ThinkReset()
+  " a new prompt starts a fresh thinking block; earlier turns stay visible
+  call s:ThinkNewTurn(a:text)
   call s:ClearInputBlock(0)
   call s:AddLogLines(['', '❯ ' . a:text])
   call s:ShowWorking()
@@ -1441,15 +1535,22 @@ function! s:OnExit(ch, code)
   let l:was_alive = s:JobAlive()
   let l:code = a:code
   call s:StopJob()
-  call s:CommitTail()
-  if !l:was_alive && l:code != 0
-    call s:AddLogLines(['', '⚠ pi exited with code ' . l:code])
-  endif
+  " Commit the tail and any exit warning with the chat window current (they
+  " address it by line number); this callback can fire while the user is in
+  " another window, e.g. reading the thinking panel.
+  call s:WithChatWin({ -> s:OnExitFinish(l:was_alive, l:code) })
   call s:BusyStop()
   call s:SetStatus('agent stopped')
   echohl WarningMsg
   echomsg 'pi-chat: agent process stopped (code ' . l:code . ')'
   echohl None
+endfunction
+
+function! s:OnExitFinish(was_alive, code)
+  call s:CommitTail()
+  if !a:was_alive && a:code != 0
+    call s:AddLogLines(['', '⚠ pi exited with code ' . a:code])
+  endif
 endfunction
 
 " Line-buffered drain: the out callback only queues; a repeating timer
@@ -1469,6 +1570,13 @@ function! s:StopDrain()
 endfunction
 
 function! s:DrainTick(timer)
+  " Run the entire tick with the chat window current (see s:WithChatWin): the
+  " queued events and the spinner both edit the chat buffer by line number, so
+  " they must not run while the user is in the thinking panel or elsewhere.
+  call s:WithChatWin(function('s:DrainTickBody'))
+endfunction
+
+function! s:DrainTickBody()
   call s:DrainQueue()
   if s:busy
     let s:spin = (s:spin + 1) % len(s:spin_frames)
@@ -1678,12 +1786,11 @@ function! s:HandleDelta(msg)
       let s:tail .= get(l:evt, 'delta', '')
       call s:FlushTail()
     endif
-    " The thinking panel (a separate buffer) always gets the stream while it
-    " exists; s:think_buf == -1 means it was never opened.
-    if s:think_buf > 0
-      let s:think_text .= get(l:evt, 'delta', '')
-      call s:FlushThinkTail()
-    endif
+    " the panel accumulates the stream even while hidden - or before it was
+    " ever opened (s:think_buf == -1) - so opening it later still shows past
+    " thoughts; s:FlushThinkTail is a no-op until the buffer exists
+    let s:think_text .= get(l:evt, 'delta', '')
+    call s:FlushThinkTail()
   endif
 endfunction
 
