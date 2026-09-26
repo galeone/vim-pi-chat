@@ -1014,7 +1014,7 @@ function! s:UserPrompt(text)
     if l:ctx !=# '' && isdirectory(fnamemodify(l:ctx, ':h'))
       if filereadable(l:ctx)
         let l:msg = 'The file I am working on is: ' . l:ctx
-              \ . ' (read it with your read tool; edit it in place when asked).' . "\n"
+              \ . ' (read it if you need its contents; edit it in place when asked).' . "\n"
               \ . a:text
       else
         let l:msg = 'The file I am working on is: ' . l:ctx
@@ -1444,7 +1444,7 @@ function! s:FileSwitch(buf) abort
     return
   endif
   let l:msg = 'I switched the file I am working on to: ' . l:fn
-        \ . ' (read it with your read tool as needed).'
+        \ . ' (read it if you need its contents).'
   call s:WithChatWin(function('s:FileSwitchLog', [l:fn]))
   let l:cmd = {'type': 'prompt', 'message': l:msg}
   if g:pi_chat_streaming_behavior !=# ''
