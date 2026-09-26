@@ -17,7 +17,17 @@ function! s:Send(text, ms)
 endfunction
 function! s:Final(ms)
   let l:b = bufnr('__PiChat__')
-  call writefile(getbufline(l:b, 1, 100000), '/tmp/t-clear.txt')
+  let l:out = getbufline(l:b, 1, 100000)
+  " Also dump the thinking panel (if open) so the runner can verify :PiClear
+  " wiped the previous session's thinking from it.
+  let l:tb = bufnr('__PiChatThinking__')
+  if l:tb > 0
+    call add(l:out, 'THINKPANEL:')
+    for l:ln in getbufline(l:tb, 1, 100000)
+      call add(l:out, '  ' . l:ln)
+    endfor
+  endif
+  call writefile(l:out, '/tmp/t-clear.txt')
   execute 'qall!'
 endfunction
 call timer_start(300,  { -> execute('silent! PiOpen') })

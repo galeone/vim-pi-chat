@@ -21,8 +21,9 @@
 'use strict';
 
 // Record our launch argv (lets tests verify startup flags like --no-session).
+// Appended, so a restarted fake (e.g. after :PiClear) leaves one line per launch.
 if (process.env.FAKE_PI_ARGV_LOG) {
-  try { require('fs').writeFileSync(process.env.FAKE_PI_ARGV_LOG, JSON.stringify(process.argv)); } catch {}
+  try { require('fs').appendFileSync(process.env.FAKE_PI_ARGV_LOG, JSON.stringify(process.argv) + '\n'); } catch {}
 }
 
 let buf = '';

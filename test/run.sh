@@ -138,7 +138,28 @@ and then acting"
               check working-mid 'pi is working' 'Echo:' ''
               check working 'Echo: hello fake' 'pi is working' ''
               export FAKE_PI_DELAY_MS= ;;
-    clear)    export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run clear 11;  check clear 'Echo: second' 'Echo: first' '' ;;
+    clear)    export FAKE_PI_THINKING=1 FAKE_PI_TOOL= FAKE_PI_ARGV_LOG=/tmp/t-clear-argv.log
+              : > /tmp/t-clear-argv.log
+              run clear 13
+              check clear 'Echo: second' 'Echo: first' ''
+              # :PiClear must also wipe the thinking panel: only the second
+              # turn's marker may remain, the first turn's must be gone.  (grep
+              # the scenario's dump directly: check() would look for a file
+              # named after this check.)
+              if grep -qE -- '──── second question' /tmp/t-clear.txt && ! grep -qE -- '──── first question' /tmp/t-clear.txt; then
+                record clear-think 1 ''
+              else
+                record clear-think 0 'thinking panel not cleared (first turn lingered or second turn missing)'
+              fi
+              # :PiClear must restart the agent with a FRESH --session-id rather
+              # than an in-process `new_session` (session replacement leaves
+              # pi-observational-memory holding a stale ctx; it then throws on
+              # the next settled turn and exits the agent with code 1).
+              if node -e 'const fs=require("fs");const l=fs.readFileSync("/tmp/t-clear-argv.log","utf8").trim().split("\n").filter(Boolean).map(s=>JSON.parse(s));const id=a=>{const i=a.indexOf("--session-id");return i<0?null:a[i+1];};if(l.length!==2)throw new Error("expected 2 launches, got "+l.length);if(!id(l[0])||!id(l[1]))throw new Error("missing --session-id in launch");if(id(l[0])===id(l[1]))throw new Error("PiClear did not start a new session");' 2>/dev/null
+              then record clear-restart 1
+              else record clear-restart 0 "restart with new --session-id not observed"
+              fi
+              export FAKE_PI_ARGV_LOG= ;;
     pifile)   export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run pifile 6;  check pifile 'context file: .*t-pifile-ctx' '' '' ;;
     notify)   export FAKE_PI_THINKING= FAKE_PI_TOOL= FAKE_PI_NOTIFY_ALL=1
               run notify 4

@@ -163,6 +163,9 @@ let s:req_id = 0
 let s:pending_msg = ''
 " 1 = about to create a brand-new session, 0 = resuming a parked one.
 let s:fresh = 1
+" Set by :PiClear: the next s:StartJob must launch a brand-new session even
+" though the context already maps to an existing (pre-clear) session file.
+let s:clear_new_session = 0
 
 " Busy indicator: an animated spinner in the chat buffer's statusline runs
 " from the moment a prompt is sent until the turn settles, so the user can
@@ -1281,11 +1284,24 @@ function! s:StartJob()
     let s:session_id = ''
   elseif g:pi_chat_session_resume
     let [l:sid, s:resumed_kind] = s:ChooseSessionId(s:context_file)
+    if s:clear_new_session
+      " :PiClear restarts the process for a fresh session instead of sending
+      " pi an in-process `new_session` command: replacing the session
+      " invalidates the context objects that loaded extensions keep, and
+      " pi-observational-memory then throws "stale ctx" in
+      " maybeTriggerCompaction on the next settled turn and exits the agent
+      " with code 1.  A fresh process has a fresh context.  A new id means
+      " create-or-resume starts a new session; the pre-clear file stays
+      " untouched on disk.
+      let s:resumed_kind = ''
+      let l:sid = 'pchat-nc-' . substitute(string(reltimefloat(reltime())), '\.', '', '')
+    endif
     let s:session_id = l:sid
     call extend(l:cmd, ['--session-id', l:sid])
   else
     let s:session_id = ''
   endif
+  let s:clear_new_session = 0
   call extend(l:cmd, g:pi_chat_args)
 
   let l:opts = {
@@ -1640,10 +1656,26 @@ function! s:PiClear()
   " input_line (a live ⏳ line above the prompt would otherwise be wiped without
   " decrementing the tracked line numbers).
   call s:HideWorking()
-  call s:Send({'type': 'new_session'})
+  " The new session has no thinking yet, so clear the thinking panel along
+  " with the transcript (otherwise the old session's thoughts linger).
   call s:ThinkReset()
+  " Restart the agent process for a brand-new session instead of sending pi
+  " an in-process `new_session` command: replacing the session invalidates
+  " the context objects that loaded extensions keep, and
+  " pi-observational-memory then throws "stale ctx" in
+  " maybeTriggerCompaction on the next settled turn and exits the agent with
+  " code 1 (see the s:clear_new_session note in s:StartJob).  A fresh process
+  " has a fresh context, and a process restart is already how :PiOpen picks a
+  " parked session back up.  s:fresh stays 0: keep the prompt line (and any
+  " half-typed text) instead of re-emitting the fresh-session hint.
+  call s:StopJob()
+  let s:clear_new_session = 1
+  let s:fresh = 0
+  call s:StartJob()
+  " Wipe the transcript above the input line and record the reset in the log
+  " (s:input_line points at the prompt line now, so the wipe runs after
+  " s:StartJob has re-pointed it).
   if s:buf > 0 && buflisted(s:buf) && s:input_line > 1 && s:input_line - 1 <= line('$')
-    " Wipe the transcript above the input line.
     call setline(1, repeat([''], s:input_line - 1))
     let s:tail = ''
     let s:tail_line = 0
@@ -1900,6 +1932,13 @@ function! s:OnErr(ch, lines)
 endfunction
 
 function! s:OnExit(ch, code)
+  " Ignore a stale exit event from a job that has already been replaced:
+  " :PiClear restarts the process synchronously, and the old process's exit
+  " can be delivered after the new job has started (s:job then holds a
+  " different channel, and s:StopJob() below would kill the live one).
+  if !empty(s:job) && job_getchannel(s:job) != a:ch
+    return
+  endif
   let l:was_alive = s:JobAlive()
   let l:code = a:code
   call s:StopJob()
