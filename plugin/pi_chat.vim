@@ -50,6 +50,7 @@ set cpo&vim
 "   g:pi_chat_show_thinking        1 = render thinking deltas
 "   g:pi_chat_map                  global normal-mode mapping, default <leader>pi
 "   g:pi_chat_context_file         1 = inject the context file into prompts
+"   g:pi_chat_track_files          1 = tell pi when you switch files (:e, :b)
 "
 " Protocol reference: pi docs/rpc.md
 " ---------------------------------------------------------------------------
@@ -83,6 +84,7 @@ if !exists('g:pi_chat_streaming_behavior')   | let g:pi_chat_streaming_behavior 
 if !exists('g:pi_chat_show_thinking')        | let g:pi_chat_show_thinking = 0 | endif
 if !exists('g:pi_chat_map')                  | let g:pi_chat_map = '<leader>pi' | endif
 if !exists('g:pi_chat_context_file')         | let g:pi_chat_context_file = 1 | endif
+if !exists('g:pi_chat_track_files')          | let g:pi_chat_track_files = 1 | endif
 if !exists('g:pi_chat_autosave_context')     | let g:pi_chat_autosave_context = 0 | endif
 " Auto-resume a pi session keyed to the file you opened (then its folder):
 " the file/folder -> session association is implicit, via a stable id derived
@@ -967,6 +969,14 @@ if !empty(g:pi_chat_map) && maparg(g:pi_chat_map, 'n') ==# ''
   execute printf('nnoremap <silent> %s :PiOpen<CR>', g:pi_chat_map)
 endif
 
+" Track the user switching to a different file (:e, :b, tab switching to a
+" file buffer, ...): keep the context file in sync and tell pi about it, so
+" the agent's next turn works on the file the user is actually looking at.
+augroup PiChatFileTrack
+  autocmd!
+  autocmd BufEnter * call s:OnFileEnter()
+augroup END
+
 " ------------------------------ job control --------------------------------
 
 function! s:UserPrompt(text)
@@ -1378,6 +1388,50 @@ function! s:PiModel(pattern)
     return
   endif
   call s:Send({'type': 'set_model', 'provider': l:parts[0], 'modelId': l:parts[1]})
+endfunction
+
+" Fires on every BufEnter: react only when the current buffer is a real file
+" (not chat, thinking panel, or any virtual buffer) and it differs from the
+" current context file.  When the agent is running, send pi a short prompt so
+" it knows the working file changed; when it is not, just remember the file
+" for the next :PiOpen.
+function! s:OnFileEnter() abort
+  if !g:pi_chat_track_files
+    return
+  endif
+  let l:fn = expand('%:p')
+  if l:fn ==# '' || !empty(getbufvar('%', '&buftype'))
+    return
+  endif
+  if bufnr('%') == s:buf || bufnr('%') == s:think_buf
+    return
+  endif
+  " The chat buffers may not have buftype=nofile set yet when BufEnter
+  " fires on their creation, so match their names as well.
+  if bufname('%') =~# '^__PiChat'
+    return
+  endif
+  if l:fn ==# s:context_file
+    return
+  endif
+  let s:context_file = l:fn
+  if !s:JobAlive()
+    return
+  endif
+  let l:msg = 'I switched the file I am working on to: ' . l:fn
+        \ . ' (read it with your read tool as needed).'
+  call s:WithChatWin(function('s:FileSwitchLog', [l:fn]))
+  let l:cmd = {'type': 'prompt', 'message': l:msg}
+  if g:pi_chat_streaming_behavior !=# ''
+    let l:cmd.streamingBehavior = g:pi_chat_streaming_behavior
+  endif
+  call s:Send(l:cmd)
+endfunction
+
+" Runs with the chat window current; keep it side-effect-free apart from the
+" log line (s:WithChatWin runs the closure synchronously).
+function! s:FileSwitchLog(name) abort
+  call s:AddLogLines(['', 'pi-chat: context file switched: ' . a:name])
 endfunction
 
 function! s:PiFile(path)

@@ -49,6 +49,11 @@ check() {
   if [ -n "${2:-}" ]; then has "$name" "$2" || { ok=0; detail="${detail} missing: $2"; }; fi
   if [ -n "${3:-}" ]; then has "$name" "$3" && { ok=0; detail="${detail} should not contain: $3"; }; fi
   if [ -n "${4:-}" ]; then [ "$(nmatch "$name" "$4")" -ge 2 ] || { ok=0; detail="${detail} expected >=2 of: $4"; }; fi
+  # Optional 5th/6th args: regex that must match exactly N times (N defaults 1).
+  if [ -n "${5:-}" ]; then
+    c=$(grep -cE -- "$5" "/tmp/t-$name.txt" 2>/dev/null); c=${c:-0}
+    [ "$c" -eq "${6:-1}" ] || { ok=0; detail="${detail} expected exactly ${6:-1} of: $5 (got $c)"; }
+  fi
   if [ "$ok" = 0 ]; then note "      --- dump ---"; sed 's/^/        /' "/tmp/t-$name.txt" 2>/dev/null; fi
   record "$name" "$ok" "$detail"
 }
@@ -170,6 +175,15 @@ the options, carefully"
               check resumethink 'panel-thought-2: 1' '' ''
               check resumethink 'panel-marker-1: 1' '' ''
               check resumethink 'panel-marker-2: 1' '' '' ;;
+    trackfile) export FAKE_PI_THINKING= FAKE_PI_TOOL= FAKE_PI_LOG=/tmp/fakepi-trackfile.log
+              : > /tmp/fakepi-trackfile.log
+              run trackfile 6
+              # two distinct switches -> exactly two switch prompts (re-editing
+              # the same buffer is a no-op), and the log line for the second one
+              check trackfile 'I switched the file I am working on to: /tmp/t-trackfile-a\.txt' \
+                '' '' '"message":"I switched the file I am working on to:' 2
+              check trackfile 'context file switched: /tmp/t-trackfile-b\.txt'
+              export FAKE_PI_LOG= ;;
     *)        export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run "$name" 10; check "$name" '' '' '' ;;
   esac
 done

@@ -91,6 +91,13 @@ g:pi_chat_context_file                            *g:pi_chat_context_file*
     in that directory).
     Default: 1
 
+g:pi_chat_track_files                          *g:pi_chat_track_files*
+    When you switch to another file (with :e, :b, ...), update the context
+    file and tell pi about it, so its next turn works on the file you are
+    looking at. While pi is busy the notice queues as a follow-up prompt.
+    Set to 0 to disable and manage the context file manually with :PiFile.
+    Default: 1
+
 g:pi_chat_autosave_context                      *g:pi_chat_autosave_context*
     When the context file has unsaved changes at send time: 1 saves it
     automatically; 0 (default) prompts you to save or cancel first.
