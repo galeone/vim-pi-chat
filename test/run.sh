@@ -82,6 +82,35 @@ for f in test/scenarios/t-*.vim; do
   [ -n "$only" ] && [ "$only" != "$name" ] && continue
   case "$name" in
     abort)    export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run abort 4;   check abort 'abort requested' '' '' ;;
+    abortresume) export FAKE_PI_THINKING= FAKE_PI_TOOL= FAKE_PI_DELAY_MS=800 FAKE_PI_TURN_MS=1200
+                 run abortresume 10
+                 check abortresume 'abort requested' '' ''
+                 # the post-abort prompt (sent through the normal CR path) must
+                 # still reach the agent and get a reply
+                 check abortresume 'Echo: second prompt' '' ''
+                 export FAKE_PI_DELAY_MS=300 FAKE_PI_TURN_MS=60 ;;
+    abortreplay)
+                 # replay of a captured REAL pi session: in-flight tool, abort
+                 # mid-tool (real event flood), then a follow-up prompt
+                 export PATH="$PWD/test/replay/bin:$PATH"
+                 run abortreplay 14
+                 export PATH="$PWD/test:$PATH"
+                 check abortreplay 'abort requested' '' ''
+                 check abortreplay '^OK$' '' '' ;;
+    abortdeath)
+                 # pi dies right after the abort burst (stale-ctx style
+                 # extension crash); the panel must be recoverable with
+                 # :PiOpen and a later send must reach the new process
+                 rm -f /tmp/t-abortdeath-state
+                 export REPLAY_DIE_AFTER_ABORT=1 REPLAY_STATE=/tmp/t-abortdeath-state
+                 export PATH="$PWD/test/replay/bin:$PATH"
+                 run abortdeath 16
+                 export REPLAY_DIE_AFTER_ABORT= REPLAY_STATE=
+                 export PATH="$PWD/test:$PATH"
+                 # the dead-agent warning appears exactly once and no stuck
+                 # "pi is working" spinner line may remain in the buffer
+                 check abortdeath 'agent process is not running' '⏳ pi is working' '' 'agent process is not running' 1
+                 check abortdeath '^OK$' '' '' ;;
     close)    export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run close 4
               check close 'wins:1' '' ''
               check close 'bufwinnr:-1' '' '' ;;
@@ -141,7 +170,10 @@ and then acting"
     clear)    export FAKE_PI_THINKING=1 FAKE_PI_TOOL= FAKE_PI_ARGV_LOG=/tmp/t-clear-argv.log
               : > /tmp/t-clear-argv.log
               run clear 13
-              check clear 'Echo: second' 'Echo: first' ''
+              # The seeded pre-clear session file must be deleted by :PiClear,
+              # so a later :PiOpen (even after a vim restart) resumes the
+              # post-clear session instead of the pre-clear one.
+              check clear 'Echo: second' 'Echo: first' '' 'cleared-old: 1'
               # :PiClear must also wipe the thinking panel: only the second
               # turn's marker may remain, the first turn's must be gone.  (grep
               # the scenario's dump directly: check() would look for a file
@@ -151,13 +183,16 @@ and then acting"
               else
                 record clear-think 0 'thinking panel not cleared (first turn lingered or second turn missing)'
               fi
-              # :PiClear must restart the agent with a FRESH --session-id rather
-              # than an in-process `new_session` (session replacement leaves
-              # pi-observational-memory holding a stale ctx; it then throws on
-              # the next settled turn and exits the agent with code 1).
-              if node -e 'const fs=require("fs");const l=fs.readFileSync("/tmp/t-clear-argv.log","utf8").trim().split("\n").filter(Boolean).map(s=>JSON.parse(s));const id=a=>{const i=a.indexOf("--session-id");return i<0?null:a[i+1];};if(l.length!==2)throw new Error("expected 2 launches, got "+l.length);if(!id(l[0])||!id(l[1]))throw new Error("missing --session-id in launch");if(id(l[0])===id(l[1]))throw new Error("PiClear did not start a new session");' 2>/dev/null
+              # :PiClear must restart the process rather than send an in-process
+              # `new_session` (session replacement leaves pi-observational-memory
+              # holding a stale ctx; it then throws on the next settled turn and
+              # exits the agent with code 1).  The restart reuses the stable
+              # context-keyed id (the pre-clear file is deleted first, so
+              # create-or-resume starts a fresh session), so both launches must
+              # carry the same --session-id.
+              if node -e 'const fs=require("fs");const l=fs.readFileSync("/tmp/t-clear-argv.log","utf8").trim().split("\n").filter(Boolean).map(s=>JSON.parse(s));const id=a=>{const i=a.indexOf("--session-id");return i<0?null:a[i+1];};if(l.length!==2)throw new Error("expected 2 launches, got "+l.length);if(!id(l[0])||!id(l[1]))throw new Error("missing --session-id in launch");if(id(l[0])!==id(l[1]))throw new Error("PiClear restart must keep the context-keyed session id");' 2>/dev/null
               then record clear-restart 1
-              else record clear-restart 0 "restart with new --session-id not observed"
+              else record clear-restart 0 "restart with context-keyed --session-id not observed"
               fi
               export FAKE_PI_ARGV_LOG= ;;
     pifile)   export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run pifile 6;  check pifile 'context file: .*t-pifile-ctx' '' '' ;;

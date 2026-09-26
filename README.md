@@ -155,6 +155,7 @@ let g:pi_chat_no_session = 0            " 1 = pass --no-session
 let g:pi_chat_streaming_behavior = 'followUp'  " 'followUp' (default) or 'steer'
 let g:pi_chat_show_thinking = 0         " 1 = also render thinking deltas inline in the chat
 let g:pi_chat_thinking_height = 0.3     " :PiThinking panel height: float 0-1 of the window, or lines
+let g:pi_chat_markdown = 1              " 0 = disable the built-in markdown highlighting in the chat/thinking buffers
 let g:pi_chat_map = '<leader>pi'        " '' disables the global mapping
 let g:pi_chat_context_file = 1          " 1 = inject the context file into prompts
 let g:pi_chat_track_files = 1           " 1 = re-key pi's context when you switch files (:e, :b, …)
@@ -169,6 +170,12 @@ let g:pi_chat_resume_max_messages = 50  " 0 = show the whole prior transcript; N
 `g:pi_chat_streaming_behavior` only matters when you send a prompt while the
 agent is already running: `followUp` queues it until the run fully settles,
 `steer` injects it after the current tool calls finish.
+
+The chat and thinking panels render markdown with the plugin's own
+buffer-local Vim highlighting (`g:pi_chat_markdown`, on by default):
+headings, bold/italic, inline and fenced code, lists, quotes and links, all
+layered on as the buffer streams in. Set `g:pi_chat_markdown = 0` to turn
+it off.
 
 `g:pi_chat_autosave_context` controls what happens when you send a prompt with
 unsaved changes in the context file: `1` saves it to disk first (so pi edits
@@ -195,12 +202,21 @@ are shown on resume (`0` = the whole transcript, handy for a long-running file).
 - Extension `editor` requests open a temporary scratch buffer (`:w` saves,
   `:q!` cancels).
 
+If the agent process dies (crash, an extension exiting, `:PiClose`), the
+panel recovers: sending to a dead agent logs `⚠ agent process is not
+running (use :PiOpen)` and clears the working state instead of wedging the
+input, and `:PiOpen` restarts the agent (resuming the session for the same
+file). `:PiClear` always forces a brand-new session.
+
 ## Development
 
 Run the whole end-to-end suite (the basic E2E plus the scenarios in
-`test/scenarios/`: `abort`, `clear`, `close`, `fail`, `model`, `multi`,
-`nosession`, `notify`, `pifile`, `pifilecmd`, `pisend`, `resume`, `think`,
-`thinkoff`, `thinkpanel`, `tools`, `working`) from the repo root. The `stall` watchdog scenario is
+`test/scenarios/`: `abort`, `abortreplay`, `abortresume`, `abortdeath`,
+`clear`, `close`, `fail`, `markdown`, `model`, `multi`, `nosession`,
+`notify`, `panelguard`, `pifile`, `pifilecmd`, `pisend`, `resume`, `think`,
+`thinkoff`, `thinkpanel`, `tools`, `trackfile`, `working`) from the repo root.
+The `abortreplay` scenario replays a captured real-pi session byte-for-byte
+(`test/replay/`). The `stall` watchdog scenario is
 manual-only (a slow fake triggers a headless hit-enter barrier):
 
 ```sh

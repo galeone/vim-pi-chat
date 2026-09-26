@@ -1,0 +1,3 @@
+#!/bin/sh
+# PATH shim: masquerades as `pi` but replays a captured real-pi session.
+exec node "$(dirname "$0")/../pi-replay.mjs" "$@"

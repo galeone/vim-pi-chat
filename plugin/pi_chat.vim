@@ -135,11 +135,6 @@ let s:think_buf = -1       " bufnr of the thinking panel buffer, or -1
 let s:think_text = ''      " full thinking text for the current turn
 " Buffers already given buffer-local markdown highlighting (avoid dupes).
 let s:md_done = {}
-" Optional glow(1) preview for the thinking panel: window id + temp file.
-let s:think_glow_win = -1
-let s:think_glow_tmp = ''
-let s:think_glow_width = 80
-
 " Buffer invariants:
 "   lines 1 .. len(s:transcript) are the read-only log and must always match
 "   s:transcript byte-for-byte. The input block occupies every line from
@@ -654,7 +649,7 @@ endfunction
 
 " Called with the panel buffer current (right after `:buffer`).
 function! s:ThinkBufInit()
-  setlocal buftype=nofile bufhidden=hide noswapfile nonumber norelativenumber
+  setlocal buftype=nofile bufhidden=hide noswapfile nonumber norelativenumber nospell
   setlocal wrap linebreak foldcolumn=0
   " `let &l:statusline` is the only form that sticks for values containing
   " spaces in this vim: `:setlocal statusline='… …'` raises E518 (value split
@@ -736,28 +731,26 @@ endfunction
 " and redraw is deferred until this flush returns, so the hop never steals
 " focus.
 function! s:FlushThinkTail()
-  if s:think_buf < 0 || empty(s:think_text)
+  if empty(s:think_text)
     return
   endif
-  let l:parts = split(s:think_text, "\n", 1)
-  let l:render = l:parts[:-2]  " complete lines
-  if l:parts[-1] !=# ''
-    call add(l:render, l:parts[-1])
-  endif
-  let l:old = getbufline(s:think_buf, 1, '$')
-  if l:render == l:old
-    return
-  endif
-  call s:ThinkBufWrite({ -> s:ThinkBufSync(l:render) })
-  let l:win = bufwinid(s:think_buf)
-  if l:win > 0
-    let l:here = win_getid()
-    call win_gotoid(l:win)
-    call cursor(len(l:render), 1)
-    call win_gotoid(l:here)
-  endif
-  if s:think_glow_win > 0
-    call s:ThinkGlowRender()
+  if s:think_buf >= 0
+    let l:parts = split(s:think_text, "\n", 1)
+    let l:render = l:parts[:-2]  " complete lines
+    if l:parts[-1] !=# ''
+      call add(l:render, l:parts[-1])
+    endif
+    let l:old = getbufline(s:think_buf, 1, '$')
+    if l:render != l:old
+      call s:ThinkBufWrite({ -> s:ThinkBufSync(l:render) })
+      let l:win = bufwinid(s:think_buf)
+      if l:win > 0
+        let l:here = win_getid()
+        call win_gotoid(l:win)
+        call cursor(len(l:render), 1)
+        call win_gotoid(l:here)
+      endif
+    endif
   endif
 endfunction
 
@@ -811,92 +804,8 @@ function! s:ApplyMarkdown()
   hi def link PiMdLink      Underlined
 endfunction
 
-" -------------------- optional glow(1) markdown preview ---------------------
-
-function! s:GlowAvailable()
-  return get(g:, 'pi_chat_thinking_glow', 0) && has('terminal') && executable('glow')
-endfunction
-
-function! s:ThinkGlowOpen()
-  if s:think_glow_win > 0
-    return
-  endif
-  let s:think_glow_tmp = tempname() . '.md'
-  call writefile(split(s:think_text, "\n", 1), s:think_glow_tmp)
-  let l:here = win_getid()
-  botright vertical split
-  let s:think_glow_width = (winwidth(0) / 2) - 4
-  if s:think_glow_width < 40
-    let s:think_glow_width = 40
-  endif
-  execute 'vertical resize ' . s:think_glow_width
-  terminal
-  let s:think_glow_win = win_getid()
-  call s:ThinkGlowRender()
-  call win_gotoid(l:here)
-endfunction
-
-" Re-run glow on the temp file (a persistent shell terminal, driven by keys).
-function! s:ThinkGlowRender()
-  if s:think_glow_win < 0 || empty(s:think_text)
-    return
-  endif
-  call writefile(split(s:think_text, "\n", 1), s:think_glow_tmp)
-  let l:buf = winbufnr(s:think_glow_win)
-  if l:buf > 0 && bufvalid(l:buf)
-    try
-      call term_sendkeys(l:buf, 'clear; glow -w ' . s:think_glow_width . ' ' . fnameescape(s:think_glow_tmp) . "\<CR>")
-    catch
-    endtry
-  endif
-endfunction
-
-function! s:ThinkGlowClose()
-  if s:think_glow_win > 0
-    let l:here = win_getid()
-    if win_gotoid(s:think_glow_win)
-      close
-    endif
-    call win_gotoid(l:here)
-    let s:think_glow_win = -1
-  endif
-  if !empty(s:think_glow_tmp) && filereadable(s:think_glow_tmp)
-    delete(s:think_glow_tmp)
-    let s:think_glow_tmp = ''
-  endif
-endfunction
-
-" :PiMarkdown — open a glow(1) preview of the chat buffer in a split.
-function! s:PiMarkdown()
-  if !has('terminal') || !executable('glow')
-    echo 'pi chat: glow not found (brew install glow) and +terminal required'
-    return
-  endif
-  if s:buf < 1
-    echo 'pi chat: no chat to preview'
-    return
-  endif
-  let l:tmp = tempname() . '.md'
-  call writefile(getbufline(s:buf, 1, '$'), l:tmp)
-  let l:here = win_getid()
-  botright vertical split
-  let l:w = (winwidth(0) / 2) - 4
-  if l:w < 40
-    let l:w = 40
-  endif
-  execute 'vertical resize ' . l:w
-  terminal
-  call term_sendkeys(winbufnr(0), 'clear; glow -w ' . l:w . ' ' . fnameescape(l:tmp) . "\<CR>")
-  call win_gotoid(l:here)
-endfunction
-command! -nargs=0 PiMarkdown call s:PiMarkdown()
-
-" :PiOpen opens both panels: show the thinking view (text panel or glow
-" preview) if it isn't already open.
+" :PiOpen opens both panels: show the thinking view if it isn't already open.
 function! s:PiShowThinking()
-  if s:think_glow_win > 0
-    return
-  endif
   if s:think_buf > 0 && bufwinnr(s:think_buf) != -1
     return
   endif
@@ -904,16 +813,6 @@ function! s:PiShowThinking()
 endfunction
 
 function! s:PiThinking()
-  " Optional glow(1) preview: drive a live terminal instead of the text panel.
-  if s:GlowAvailable()
-    if s:think_glow_win > 0
-      call s:ThinkGlowClose()
-      echo 'pi chat: thinking preview hidden (content kept)'
-    else
-      call s:ThinkGlowOpen()
-    endif
-    return
-  endif
   if s:think_buf > 0 && bufwinnr(s:think_buf) != -1
     " toggle off: the window closes, the buffer (and its content) survives
     call win_gotoid(bufwinid(s:think_buf))
@@ -1030,8 +929,12 @@ function! s:UserPrompt(text)
   if g:pi_chat_streaming_behavior !=# ''
     let l:cmd.streamingBehavior = g:pi_chat_streaming_behavior
   endif
-  call s:Send(l:cmd)
-  call s:BusyStart()
+  " Only arm the busy state when the prompt actually reached the channel:
+  " a failed send (dead agent) would otherwise leave the spinner running
+  " and the input guard discarding every keystroke until vim is restarted.
+  if s:Send(l:cmd)
+    call s:BusyStart()
+  endif
 endfunction
 
 function! s:JobAlive()
@@ -1048,19 +951,32 @@ function! s:JobAlive()
   endtry
 endfunction
 
+" Returns 1 if the command reached the channel, 0 on failure. A failed send
+" (agent dead or channel broken) clears the working state, so a prompt sent
+" into a dead agent cannot leave the panel stuck with a permanent spinner
+" and a busy input guard swallowing every keystroke until vim is restarted.
 function! s:Send(dict)
   if !s:JobAlive()
-    call s:AddLogLines(['', '⚠ agent process is not running (use :PiOpen)'])
-    return
+    call s:SendFail('agent process is not running (use :PiOpen)')
+    return 0
   endif
   let s:req_id += 1
   let l:payload = a:dict
   let l:payload.id = 'req-' . s:req_id
   try
     call ch_sendraw(s:job, json_encode(l:payload) . "\n")
+    return 1
   catch
-    call s:AddLogLines(['', '⚠ failed to talk to pi: ' . v:exception])
+    call s:SendFail('failed to talk to pi: ' . v:exception .
+          \ ' (use :PiClear to restart the agent)')
+    return 0
   endtry
+endfunction
+
+function! s:SendFail(msg)
+  call s:HideWorking()
+  call s:BusyStop()
+  call s:AddLogLines(['', '⚠ ' . a:msg])
 endfunction
 
 " Spawns `pi --mode rpc` as a background job. Output arrives line by line
@@ -1271,6 +1187,12 @@ function! s:StartJob()
 
   call s:OpenWindow()
 
+  " A restarted process has no memory of the old one: drop a stale working
+  " line / busy flag left behind if the agent died while a send was in
+  " flight, so the :PiOpen recovery path always lands on a usable panel.
+  call s:HideWorking()
+  call s:BusyStop()
+
   let s:running = 0
   let s:queue = []
   let s:tail = ''
@@ -1290,11 +1212,22 @@ function! s:StartJob()
       " invalidates the context objects that loaded extensions keep, and
       " pi-observational-memory then throws "stale ctx" in
       " maybeTriggerCompaction on the next settled turn and exits the agent
-      " with code 1.  A fresh process has a fresh context.  A new id means
-      " create-or-resume starts a new session; the pre-clear file stays
-      " untouched on disk.
+      " with code 1.  A fresh process has a fresh context.
+      "
+      " The pre-clear session file for this id is deleted before launch:
+      " create-or-resume with the id then starts a *new* session, but under
+      " the same stable context-keyed id, so a later :PiOpen (even after a
+      " full vim restart) resumes the post-clear session.  An ad-hoc id
+      " would orphan the context mapping and make the next open resume the
+      " pre-clear session instead.
+      let l:old_files = glob(s:SessionBaseDir() . '/*/*' . l:sid . '.jsonl', 1, 1)
+      if type(l:old_files) == v:t_string
+        let l:old_files = split(l:old_files, "\n")
+      endif
+      for l:old in l:old_files
+        call delete(l:old)
+      endfor
       let s:resumed_kind = ''
-      let l:sid = 'pchat-nc-' . substitute(string(reltimefloat(reltime())), '\.', '', '')
     endif
     let s:session_id = l:sid
     call extend(l:cmd, ['--session-id', l:sid])
@@ -1840,7 +1773,7 @@ function! PiChatAbort()
 endfunction
 
 function! s:BufSetup()
-  setlocal buftype=nofile bufhidden=hide noswapfile nonumber norelativenumber
+  setlocal buftype=nofile bufhidden=hide noswapfile nonumber norelativenumber nospell
   setlocal wrap linebreak cursorline foldcolumn=0
   setlocal statusline=%{PiChatStatusText()}
 

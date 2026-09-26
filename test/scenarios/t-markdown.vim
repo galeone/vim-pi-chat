@@ -27,8 +27,6 @@ call writefile(['(t-markdown dump)'], '/tmp/t-markdown.txt')
 " Source the plugin from the repo (the CWD is not on the rtp here).
 execute 'source ' . fnameescape(s:root . '/plugin/pi_chat.vim')
 
-" :PiMarkdown is a user :command; exists(':PiMarkdown') is 1 or 2 when registered.
-"
 " s:GroupStatus(grp, want): report the full state of one PiMd* group.
 "   'absent'         -> highlight group not defined (markdown off / not applied)
 "   'link-mismatch'  -> group defined but :hi does not link to <want>
@@ -51,7 +49,6 @@ endfunction
 function! s:Check()
     let l:out = [
                 \ 'markdown: ' . g:pi_chat_markdown,
-                \ 'piMarkdown-cmd: ' . exists(':PiMarkdown'),
                 \ 'PiMdHeading: ' . s:GroupStatus('PiMdHeading', 'Title'),
                 \ 'PiMdCode: ' . s:GroupStatus('PiMdCode', 'Special'),
                 \ 'PiMdList: ' . s:GroupStatus('PiMdList', 'Keyword'),
