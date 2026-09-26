@@ -160,7 +160,10 @@ and then acting"
               # sample fully-ok, forbid absent/mismatch/item-missing, want >=2 ok).
               # Headless: synID rendering is a no-op, but :hi + :syntax list are
               # observable; the item check catches syn lines that silently fail.
-              check markdown 'PiMdHeading: ok' 'absent\|mismatch\|item-missing' ': ok' ;;
+              # 'render-ok' (nested vim -es per-byte dump) proves **text** resolves
+              # to bold, not italic; the forbid list also catches the render
+              # failure strings (which the plain ': ok' min-two would not).
+              check markdown 'PiMdHeading: ok' 'absent\|mismatch\|item-missing\|render-harness\|render-bold\|render-italic' ': ok' 'render-ok' '1' ;;
     working)  export FAKE_PI_DELAY_MS=2500 FAKE_PI_TURN_MS=100 FAKE_PI_THINKING= FAKE_PI_TOOL=
               run working 7
               # in flight: working line shown, reply not yet; after settle: reply in, working gone.

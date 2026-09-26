@@ -787,8 +787,11 @@ function! s:ApplyMarkdown()
   syn match PiMdFence     '^\s*```\S*'
   syn region PiMdCodeBlock start=/^\s*```/ end=/^\s*```/ contains=PiMdFence keepend
   syn match PiMdHeading   '^#\+\s\+\S.*\|^#\+\s*$'
-  syn match PiMdBold      '\*\*\S.*\S\*\*'
+  " PiMdItalic must be defined BEFORE PiMdBold: when both match the same
+  " bytes (the inner *text* of **text**), the last-defined item wins per
+  " byte, so defining bold last keeps **text** bold instead of italic.
   syn match PiMdItalic    '\*\S[^*]*\S\*\|\*\S[^*]*$'
+  syn match PiMdBold      '\*\*\S.*\S\*\*'
   syn match PiMdCode      '`[^`]\+`'
   syn match PiMdList      '^\s*[-*+]\s\|^\s*[0-9]\+\.\s'
   syn match PiMdQuote     '^>.*'
