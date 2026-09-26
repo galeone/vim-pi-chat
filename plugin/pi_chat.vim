@@ -109,6 +109,11 @@ let s:bufname = '__PiChat__'
 " prompts so the agent knows which document to read/edit (and used as the pi
 " job's cwd).
 let s:context_file = ''
+let s:context_buf = -1
+" window bookkeeping for s:PanelGuard(): winid of the last window showing a
+" real file, and winid -> panel bufnr for windows currently showing one.
+let s:file_win = 0
+let s:panel_wins = {}
 " The pi session id in use for the current job ('' = none / pi default), and
 " the resume kind chosen at start ('file', 'dir' or 'new') for the log hint.
 let s:session_id = ''
@@ -212,6 +217,11 @@ function! s:PiOpen(...)
   " Fresh session: capture the buffer the user was viewing before the chat
   " window took over.
   let s:context_file = expand('%:p')
+  " Only pin a buffer number when the context is actually a named file
+  " buffer: an unnamed buffer can later be named by :e file, and virtual
+  " buffers are never context files.
+  let s:context_buf = (empty(bufname('%'))
+        \ || !empty(getbufvar('%', '&buftype')) ? -1 : bufnr('%'))
   let s:fresh = 1
   call s:StartJob()
 
@@ -974,6 +984,9 @@ endif
 " the agent's next turn works on the file the user is actually looking at.
 augroup PiChatFileTrack
   autocmd!
+  " PanelGuard first: the panel must be back in its window before OnFileEnter
+  " logs the switch (the log is appended to the chat window's buffer).
+  autocmd BufEnter * call s:PanelGuard()
   autocmd BufEnter * call s:OnFileEnter()
 augroup END
 
@@ -1390,31 +1403,43 @@ function! s:PiModel(pattern)
   call s:Send({'type': 'set_model', 'provider': l:parts[0], 'modelId': l:parts[1]})
 endfunction
 
-" Fires on every BufEnter: react only when the current buffer is a real file
-" (not chat, thinking panel, or any virtual buffer) and it differs from the
-" current context file.  When the agent is running, send pi a short prompt so
-" it knows the working file changed; when it is not, just remember the file
-" for the next :PiOpen.
-function! s:OnFileEnter() abort
+" Fires on every BufEnter, and is also called directly by s:PanelGuard after
+" it moves a file buffer out of a panel window (buffer switches made inside a
+" BufEnter autocmd do not reliably fire new BufEnter events, so the swap
+" drives this call itself).
+"
+" React only when a:buf is a real file (not chat, thinking panel, or any
+" virtual buffer) and differs from the current context file.  When the agent
+" is running, send pi a short prompt so it knows the working file changed;
+" when it is not, just remember the file for the next :PiOpen.
+function! s:FileSwitch(buf) abort
   if !g:pi_chat_track_files
     return
   endif
-  let l:fn = expand('%:p')
-  if l:fn ==# '' || !empty(getbufvar('%', '&buftype'))
+  if a:buf <= 0 || a:buf == s:buf || a:buf == s:think_buf
     return
   endif
-  if bufnr('%') == s:buf || bufnr('%') == s:think_buf
+  " An unnamed buffer is never a context file.  (bufname is checked directly
+  " because fnamemodify('', ':p') expands to the working directory.)
+  if empty(bufname(a:buf))
+    return
+  endif
+  let l:fn = fnamemodify(bufname(a:buf), ':p')
+  if !empty(getbufvar(a:buf, '&buftype'))
     return
   endif
   " The chat buffers may not have buftype=nofile set yet when BufEnter
   " fires on their creation, so match their names as well.
-  if bufname('%') =~# '^__PiChat'
+  if bufname(a:buf) =~# '^__PiChat'
     return
   endif
-  if l:fn ==# s:context_file
+  " The same buffer can surface with different path spellings (e.g. /tmp vs
+  " /private/tmp), so compare buffer numbers, not just path strings.
+  if l:fn ==# s:context_file || a:buf == s:context_buf
     return
   endif
   let s:context_file = l:fn
+  let s:context_buf = a:buf
   if !s:JobAlive()
     return
   endif
@@ -1426,6 +1451,60 @@ function! s:OnFileEnter() abort
     let l:cmd.streamingBehavior = g:pi_chat_streaming_behavior
   endif
   call s:Send(l:cmd)
+endfunction
+
+function! s:OnFileEnter() abort
+  call s:FileSwitch(bufnr('%'))
+endfunction
+
+" Keeps the panels in their own windows.  If the cursor happens to sit on
+" the chat or thinking panel and the user runs a buffer-switching command
+" (:e file, :b, :bn, the buffer list, ...), the file buffer takes over the
+" panel's window.  The panel buffer is bufhidden=hide, so it survives; put
+" the file into the last real-file window and restore the panel in place,
+" as if the command had been typed in the file window.  Without a live
+" file window the file simply stays where the user put it (:PiOpen brings
+" the panel back).
+function! s:PanelGuard() abort
+  let l:wid = win_getid()
+  let l:bn = bufnr('%')
+  " Panel buffers may lack buftype=nofile for one tick on creation, so the
+  " name is the reliable test.
+  if bufname('%') =~# '^__PiChat'
+    let s:panel_wins[l:wid] = l:bn
+    return
+  endif
+  if !empty(getbufvar('%', '&buftype'))
+    return
+  endif
+  " A real file buffer just entered window l:wid.
+  if !has_key(s:panel_wins, l:wid)
+    let s:file_win = l:wid
+    return
+  endif
+  let l:panel = s:panel_wins[l:wid]
+  unlet s:panel_wins[l:wid]
+  if !bufexists(l:panel) || getbufvar(l:panel, '&bufhidden') !=# 'hide'
+    return
+  endif
+  if s:file_win ==# l:wid || s:file_win == 0 || win_id2win(s:file_win) == -1
+    let s:file_win = l:wid
+    return
+  endif
+  " Restore the panel in its own window (we are still in l:wid) ...
+  execute 'silent buffer ' . l:panel
+  " ... then show the file in the user's file window.  This order matters:
+  " the file's BufEnter triggers the context-switch log, which must land in
+  " the chat window, not in the file window.
+  call win_gotoid(s:file_win)
+  execute 'silent buffer ' . l:bn
+  " Stay where the user's cursor was (the panel window).
+  call win_gotoid(l:wid)
+  " The swap happened inside the file's BufEnter, whose autocmd chain sees
+  " the panel buffer again (and nested :buffer calls do not reliably refire
+  " BufEnter): drive the context switch ourselves so the log lands in the
+  " restored panel and pi is told about the file.
+  call s:FileSwitch(l:bn)
 endfunction
 
 " Runs with the chat window current; keep it side-effect-free apart from the
@@ -1451,6 +1530,7 @@ function! s:PiFile(path)
     return
   endif
   let s:context_file = l:f
+  let s:context_buf = bufnr(l:f)
   call s:AddLogLines(['pi-chat: context file: ' . l:f
         \ . (s:JobAlive() ? ' (cwd applies from next :PiOpen)' : '')])
 endfunction

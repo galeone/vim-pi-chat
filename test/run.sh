@@ -175,6 +175,15 @@ the options, carefully"
               check resumethink 'panel-thought-2: 1' '' ''
               check resumethink 'panel-marker-1: 1' '' ''
               check resumethink 'panel-marker-2: 1' '' '' ;;
+    panelguard) export FAKE_PI_THINKING= FAKE_PI_TOOL= FAKE_PI_LOG=/tmp/fakepi-panelguard.log
+      : > /tmp/fakepi-panelguard.log
+      run panelguard 7
+      check panelguard 'panel-ok: current window shows the chat buffer'
+      check panelguard 'filewindow-ok:'
+      check panelguard 'I switched the file I am working on to: /tmp/panel-b\.txt'
+      check panelguard 'context file switched: /tmp/panel-b\.txt'
+      export FAKE_PI_LOG= ;;
+
     trackfile) export FAKE_PI_THINKING= FAKE_PI_TOOL= FAKE_PI_LOG=/tmp/fakepi-trackfile.log
               : > /tmp/fakepi-trackfile.log
               run trackfile 6

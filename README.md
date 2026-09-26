@@ -86,6 +86,12 @@ transcript and your half-typed prompt survive. Reopening with `:PiOpen` or
 `:buffer __PiChat__` resumes the same conversation. `:PiClose` is the one that
 actually tears the session down.
 
+The panels also defend their own windows. If you run a buffer-switching
+command (`:e file`, `:b`, `:bn`, …) while the cursor is on the chat or
+thinking panel, the file is moved into your last real-file window and the
+panel is restored in place, so a stray `:e` can never replace a panel. With
+no file window open the file stays put and `:PiOpen` brings the panel back.
+
 Sessions persist the usual way — pi stores them in `~/.pi/sessions` and
 resumes by default; each `:PiOpen` continues the most recent session. Use
 `g:pi_chat_no_session = 1` for `--no-session`.
@@ -113,6 +119,12 @@ When pi edits the context file (via its edit/write tool) the plugin reloads the
 buffer from disk so you see the change live. If that buffer has unsaved changes
 of your own, the reload is skipped with a notification and a `:e!` hint,
 so it never clobbers your in-progress edits.
+
+With `g:pi_chat_track_files` (default `1`) the context also follows your
+working file automatically: opening a different real file (`:e`, `:b`, …)
+re-keys it, and if the agent is running it is told the switch (logged in the
+chat); with it parked, the new file is used on the next `:PiOpen`. Set
+`g:pi_chat_track_files = 0` to keep the context fixed until you use `:PiFile`.
 
 ### Resuming a conversation
 
@@ -145,6 +157,7 @@ let g:pi_chat_show_thinking = 0         " 1 = also render thinking deltas inline
 let g:pi_chat_thinking_height = 0.3     " :PiThinking panel height: float 0-1 of the window, or lines
 let g:pi_chat_map = '<leader>pi'        " '' disables the global mapping
 let g:pi_chat_context_file = 1          " 1 = inject the context file into prompts
+let g:pi_chat_track_files = 1           " 1 = re-key pi's context when you switch files (:e, :b, …)
 let g:pi_chat_autosave_context = 0      " 1 = save the context file before each send (else prompt)
 let g:pi_chat_run_timeout = 300         " 0 = off; N = warn if a run is still busy after N seconds
 let g:pi_chat_session_resume = 1        " 1 = :PiOpen resumes the file's (or folder's) pi conversation
