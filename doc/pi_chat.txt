@@ -1,4 +1,4 @@
-*pi_chat.txt*             For Vim 9.0+            *pi_chat* *g:pi_chat*
+*pi_chat.txt*       For Vim 9.0+ / Neovim 0.9+     *pi_chat* *g:pi_chat*
 
 ==============================================================================
 Contents                                              *pi_chat-contents*
@@ -20,9 +20,9 @@ streamed replies, tool execution, and pi's own UI requests are rendered into
 the transcript in real time. The job is shared: opening the chat while the
 agent is running reuses the live conversation.
 
-Requirements: Vim 9.0+ compiled with |+job| and |+channel|, and the `pi` CLI
-on $PATH (authenticated beforehand). Neovim is not supported: the plugin is
-built on Vim's job/channel API.
+Requirements: Vim 9.0+ compiled with |+job| and |+channel|, or Neovim 0.9+.
+The `pi` CLI must be on $PATH (authenticated beforehand). A thin compatibility
+shim (autoload/pi_chat_compat.vim) bridges the Vim and Neovim job APIs.
 
 ==============================================================================
 Commands                                                          *pi_chat-commands*

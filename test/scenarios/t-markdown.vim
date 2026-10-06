@@ -77,7 +77,8 @@ function! s:RenderCheck()
                 \ 'endfor',
                 \ 'redir END',
                 \ 'qa!'], '/tmp/t-markdown-render.vim')
-    let l:rc = system('vim -es -u NONE -c "source /tmp/t-markdown-render.vim" < /dev/null 2>&1')
+    let l:inner = has('nvim') ? 'nvim --headless -es -u NONE -c' : 'vim -es -u NONE -c'
+    let l:rc = system(l:inner . ' "source /tmp/t-markdown-render.vim" < /dev/null 2>&1')
     if l:rc != 0 || !filereadable('/tmp/t-markdown-render.txt')
         return 'render-harness-failed'
     endif

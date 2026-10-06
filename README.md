@@ -1,9 +1,8 @@
 # vim-pi-chat
 
 A chat window for the [pi coding agent](https://github.com/earendil-works/pi)
-inside Vim 9 (no GUI, no Node.js runtime needed by Vim itself — it just
-speaks to the `pi` CLI). Neovim is not supported: the plugin is built on Vim's
-job/channel API.
+inside Vim 9+ and Neovim 0.9+ (no GUI, no Node.js runtime needed by the
+editor itself — it just speaks to the `pi` CLI).
 
 ```
 ┌────────────────────────────────────────────┬─────────────────────────────┐
@@ -63,8 +62,8 @@ git clone https://github.com/galeone/vim-pi-chat ~/.vim/pack/plugins/start/vim-p
 
 Requirements:
 
-- Vim **9.0+** compiled with `+job +channel` (`vim --version | grep job`);
-  Neovim is not supported
+- Vim **9.0+** compiled with `+job +channel` (`vim --version | grep job`),
+  or **Neovim 0.9+**
 - the `pi` CLI installed and on `$PATH`
 - `pi auth` done beforehand (the plugin never handles credentials)
 

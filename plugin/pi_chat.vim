@@ -81,28 +81,35 @@ set cpo&vim
 if exists('g:loaded_pi_chat')
   finish
 endif
-" Vim 9.0+ only: the plugin is built on Vim's job/channel API (job_start,
-" ch_sendraw, job_status, ...), which Neovim does not provide.
+" Vim 9.0+ or Neovim 0.9+. The job/channel layer is abstracted by
+" autoload/pi_chat_compat.vim so both editors work from the same code.
 if has('nvim')
-  echohl WarningMsg
-  echomsg 'pi-chat: requires Vim 9.0+ (Neovim is not supported)'
-  echohl None
-  finish
-endif
-if !has('job') || !has('channel')
-  echohl WarningMsg
-  echomsg 'pi-chat: requires Vim compiled with +job and +channel'
-  echohl None
-  finish
-endif
-if v:version < 900
-  echohl WarningMsg
-  echomsg 'pi-chat: requires Vim 9.0+'
-  echohl None
-  finish
+  if !has('nvim-0.9')
+    echohl WarningMsg
+    echomsg 'pi-chat: requires Neovim 0.9+'
+    echohl None
+    finish
+  endif
+else
+  if !has('job') || !has('channel')
+    echohl WarningMsg
+    echomsg 'pi-chat: requires Vim compiled with +job and +channel'
+    echohl None
+    finish
+  endif
+  if v:version < 900
+    echohl WarningMsg
+    echomsg 'pi-chat: requires Vim 9.0+'
+    echohl None
+    finish
+  endif
 endif
 
 let g:loaded_pi_chat = 1
+
+" Ensure the plugin root is on &rtp so autoload/pi_chat_compat.vim is found
+" even when the plugin is loaded via a raw :source (e.g. the test harness).
+execute 'set rtp^=' . fnameescape(fnamemodify(resolve(expand('<sfile>:p')), ':h:h'))
 
 " ----------------------------- configuration -------------------------------
 
@@ -1384,12 +1391,12 @@ function! s:UserPrompt(text)
 endfunction
 
 function! s:HasJob()
-  return type(s:job) == v:t_job
+  return pi_chat_compat#IsJob(s:job)
 endfunction
 
 " job_status() is 'run', 'fail' (could not start) or 'dead'.
 function! s:JobAlive()
-  return s:HasJob() && job_status(s:job) ==# 'run'
+  return s:HasJob() && pi_chat_compat#JobAlive(s:job)
 endfunction
 
 " Returns 1 if the command reached the channel, 0 on failure. A failed send
@@ -1410,7 +1417,7 @@ function! s:Send(dict)
     let l:payload.id = 'req-' . s:req_id
   endif
   try
-    call ch_sendraw(s:job, json_encode(l:payload) . "\n")
+    call pi_chat_compat#ChSend(s:job, json_encode(l:payload) . "\n")
     return 1
   catch
     call s:SendFail('failed to talk to pi: ' . v:exception .
@@ -1817,7 +1824,7 @@ function! s:StartJob()
   endif
   try
     " The command is a List: no shell is involved, so no quoting is needed.
-    let s:job = job_start(l:cmd, l:opts)
+    let s:job = pi_chat_compat#JobStart(l:cmd, l:opts)
   catch
     let s:job = v:null
     echohl ErrorMsg
@@ -1825,6 +1832,13 @@ function! s:StartJob()
     echohl None
     return
   endtry
+  if !pi_chat_compat#IsJob(s:job)
+    let s:job = v:null
+    echohl ErrorMsg
+    echomsg 'pi-chat: failed to start pi'
+    echohl None
+    return
+  endif
 
   " Mirror s:StopJob()'s s:StopDrain(): every (re)started job needs the drain
   " timer live to process its events. On the parked-resume path s:OpenWindow()
@@ -1886,11 +1900,11 @@ function! s:StopJob()
   call s:StopDrain()
   if s:HasJob()
     try
-      call ch_close(s:job)
+      call pi_chat_compat#ChClose(s:job)
     catch
     endtry
     try
-      call job_stop(s:job)
+      call pi_chat_compat#JobStop(s:job)
     catch
     endtry
     let s:job = v:null
@@ -2635,11 +2649,7 @@ function! s:OnExit(job, code)
 endfunction
 
 function! s:JobPid(job)
-  try
-    return get(job_info(a:job), 'process', -1)
-  catch
-    return -1
-  endtry
+  return pi_chat_compat#JobPid(a:job)
 endfunction
 
 function! s:OnExitFinish(was_alive, code)

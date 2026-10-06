@@ -16,6 +16,9 @@
 set -u
 cd "$(dirname "$0")/.."
 export PATH="$PWD/test:$PATH"   # so job_start(['pi',...]) finds test/pi -> fake-pi.js
+
+# Allow overriding the editor: VIM=nvim sh test/run.sh
+VIM="${VIM:-vim}"
 export FAKE_PI_DELAY_MS="${FAKE_PI_DELAY_MS:-300}"
 export FAKE_PI_TURN_MS="${FAKE_PI_TURN_MS:-60}"
 export FAKE_PI_THINKING="${FAKE_PI_THINKING:-}"
@@ -29,7 +32,8 @@ record() { # record <name> <1|0> <detail>
   else FAIL=$((FAIL+1)); FAILED="$FAILED $1"; note "FAIL  $1  $3"; fi
 }
 # Vim E-error count for a run log (ANSI stripped).
-pe() { sed 's/\x1b\[[0-9;]*m//g' "/tmp/run-$1.log" 2>/dev/null | grep -cE 'E[0-9]+:'; }
+# Neovim's headless -u mode triggers E484 for missing syntax.vim; filter it.
+pe() { sed 's/\x1b\[[0-9;]*m//g' "/tmp/run-$1.log" 2>/dev/null | grep -vE "E484:.*syntax.vim" | grep -cE 'E[0-9]+:'; }
 has() { grep -qE -- "$2" "/tmp/t-$1.txt" 2>/dev/null; }
 nmatch() { grep -cE -- "$2" "/tmp/t-$1.txt" 2>/dev/null; }
 
@@ -40,7 +44,11 @@ run() {
   # sleep keeps vim's stdin open for $2 s (headless vim exits on stdin EOF);
   # when the sleep finishes the pipe EOFs and terminates vim. Blocks exactly
   # $2 s and always returns, so the suite can never hang on a scenario.
-  sleep "$2" | vim --not-a-term -Nu "./test/scenarios/t-$1.vim" > "/tmp/run-$1.log" 2>&1
+  if [ "$VIM" = "nvim" ]; then
+    sleep "$2" | nvim --headless -u "./test/scenarios/t-$1.vim" > "/tmp/run-$1.log" 2>&1
+  else
+    sleep "$2" | vim --not-a-term -Nu "./test/scenarios/t-$1.vim" > "/tmp/run-$1.log" 2>&1
+  fi
 }
 # check <name> <want-regex> [forbid-regex] [min-two-regex]
 check() {
@@ -63,10 +71,14 @@ only="${1:-}"
 # ---- basic single-open E2E (the original test/vimrc-test) ----
 if [ -z "$only" ] || [ "$only" = basic ]; then
   rm -f /tmp/pibuf.txt /tmp/pilog.txt /tmp/pistatus.txt
-  sleep 11 | vim --not-a-term -Nu ./test/vimrc-test > /tmp/pilog.txt 2>&1
+  if [ "$VIM" = "nvim" ]; then
+    sleep 11 | nvim --headless -u ./test/vimrc-test > /tmp/pilog.txt 2>&1
+  else
+    sleep 11 | vim --not-a-term -Nu ./test/vimrc-test > /tmp/pilog.txt 2>&1
+  fi
   sleep 0.3
   ok=1
-  [ "$(sed 's/\x1b\[[0-9;]*m//g' /tmp/pilog.txt 2>/dev/null | grep -cE 'E[0-9]+:')" -gt 0 ] && ok=0
+  [ "$(sed 's/\x1b\[[0-9;]*m//g' /tmp/pilog.txt 2>/dev/null | grep -vE 'E484:.*syntax.vim' | grep -cE 'E[0-9]+:')" -gt 0 ] && ok=0
   for s in 'Echo: hello fake' '✓ bash' 'fake reply to: hello fake'; do
     grep -qE "$s" /tmp/pibuf.txt 2>/dev/null || ok=0
   done
@@ -467,9 +479,9 @@ and then acting"
               check dialogs 'sel-esc-cancelled: 1' '' ''
               check dialogs 'sel-pick-value: Block' '' ''
               check dialogs 'sel-one-cancelled: 1' '' ''
-              check dialogs 'conf-yes: \{"confirmed":true\}' '' ''
-              check dialogs 'conf-no: \{"confirmed":false\}' '' ''
-              check dialogs 'conf-esc: \{"cancelled":true\}' '' ''
+              check dialogs 'conf-yes: \{"confirmed": *true\}' '' ''
+              check dialogs 'conf-no: \{"confirmed": *false\}' '' ''
+              check dialogs 'conf-esc: \{"cancelled": *true\}' '' ''
               check dialogs 'conf-text: "Clear session\?\\nAll messages will be lost\."' '' ''
               check dialogs 'in-text-value: \[abc\]' '' ''
               check dialogs 'in-empty-value: \[\]' '' ''
@@ -525,9 +537,9 @@ the options, carefully"
               check trackfile 'PROMPTS-BEFORE-SEND=0' '' ''
               # ... the next prompt carries ONE notice, for the latest file only
               # (a was superseded), and the prompt after it carries none
-              check trackfile '"message":"I switched the file I am working on to: /tmp/t-trackfile-b\.txt' \
-                '"message":"I switched[^"]*t-trackfile-a' '' '"message":"I switched the file' 1
-              check trackfile '"message":"second prompt"' '' ''
+              check trackfile '"message": *"I switched the file I am working on to: /tmp/t-trackfile-b\.txt' \
+                '"message": *"I switched[^"]*t-trackfile-a' '' '"message": *"I switched the file' 1
+              check trackfile '"message": *"second prompt"' '' ''
               check trackfile 'context file switched: /tmp/t-trackfile-b\.txt'
               export FAKE_PI_LOG= ;;
     *)        export FAKE_PI_THINKING= FAKE_PI_TOOL=;     run "$name" 10; check "$name" '' '' '' ;;

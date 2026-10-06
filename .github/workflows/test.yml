@@ -26,6 +26,24 @@ jobs:
       - name: Run tests
         run: sh test/run.sh
 
+  test-nvim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Neovim
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y neovim
+          nvim --version | head -3
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 25
+
+      - name: Run tests (Neovim)
+        run: VIM=nvim sh test/run.sh
+
   # semantic-release: bump the version from conventional commits (fix:/feat:/BREAKING CHANGE),
   # tag it (vX.Y.Z) and publish a GitHub Release with generated notes.
   # Runs only after the E2E suite passes, on pushes to main.
